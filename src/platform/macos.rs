@@ -3,12 +3,193 @@ use crate::{Error, Result};
 use image;
 use log::{debug, info, error};
 use tauri::Runtime;
+use core_graphics::display::{
+    CGWindowListCopyWindowInfo, kCGWindowListOptionAll, kCGWindowListExcludeDesktopElements,
+    kCGNullWindowID, CGWindowListCreateImage, CGRect, CGPoint, CGSize,
+    kCGWindowImageDefault, kCGWindowImageBoundsIgnoreFraming,
+};
+use core_graphics::base::CGFloat;
 
 // Import shared functionality
 use crate::desktop::{ScreenshotContext, create_success_response};
 use crate::platform::shared::{get_window_title, handle_screenshot_task};
 use crate::shared::ScreenshotParams;
 use crate::tools::take_screenshot::process_image;
+
+/// Window info extracted from CGWindowListCopyWindowInfo
+#[derive(Debug, Clone)]
+struct WindowInfo {
+    window_id: u32,
+    owner_name: String,
+    name: String,
+    layer: i32,
+    bounds: (f64, f64, f64, f64), // x, y, width, height
+}
+
+/// Get all windows using CGWindowListCopyWindowInfo with kCGWindowListOptionAll
+/// This finds windows that xcap's kCGWindowListOptionOnScreenOnly misses (like Tauri windows)
+fn get_all_windows_cg() -> Vec<WindowInfo> {
+    use core_foundation::base::TCFType;
+    use core_foundation::array::CFArray;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::string::CFString;
+
+    let mut windows = Vec::new();
+
+    unsafe {
+        let options = kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements;
+        let window_list = CGWindowListCopyWindowInfo(options, kCGNullWindowID);
+
+        if window_list.is_null() {
+            return windows;
+        }
+
+        let array: CFArray = CFArray::wrap_under_create_rule(window_list);
+
+        for i in 0..array.len() {
+            let dict_ref = match array.get(i as isize) {
+                Some(r) => r,
+                None => continue,
+            };
+
+            // Cast to CFDictionary - the dict_ref is a raw pointer
+            let dict_ptr = *dict_ref as *const core_foundation::dictionary::__CFDictionary;
+            let dict: CFDictionary<CFString, *const std::ffi::c_void> =
+                CFDictionary::wrap_under_get_rule(dict_ptr);
+
+            // Extract window properties
+            let owner_name = get_string_from_dict(&dict, "kCGWindowOwnerName").unwrap_or_default();
+            let name = get_string_from_dict(&dict, "kCGWindowName").unwrap_or_default();
+            let layer = get_number_from_dict(&dict, "kCGWindowLayer").unwrap_or(-1) as i32;
+            let window_id = get_number_from_dict(&dict, "kCGWindowNumber").unwrap_or(0) as u32;
+
+            // Get bounds
+            let bounds = get_bounds_from_dict(&dict);
+
+            windows.push(WindowInfo {
+                window_id,
+                owner_name,
+                name,
+                layer,
+                bounds,
+            });
+        }
+    }
+
+    windows
+}
+
+fn get_string_from_dict(dict: &core_foundation::dictionary::CFDictionary<core_foundation::string::CFString, *const std::ffi::c_void>, key: &str) -> Option<String> {
+    use core_foundation::string::CFString;
+    use core_foundation::base::TCFType;
+
+    let cf_key = CFString::new(key);
+    unsafe {
+        if let Some(value) = dict.find(cf_key) {
+            let cf_str: CFString = CFString::wrap_under_get_rule(*value as *const _);
+            Some(cf_str.to_string())
+        } else {
+            None
+        }
+    }
+}
+
+fn get_number_from_dict(dict: &core_foundation::dictionary::CFDictionary<core_foundation::string::CFString, *const std::ffi::c_void>, key: &str) -> Option<i64> {
+    use core_foundation::string::CFString;
+    use core_foundation::number::CFNumber;
+    use core_foundation::base::TCFType;
+
+    let cf_key = CFString::new(key);
+    unsafe {
+        if let Some(value) = dict.find(cf_key) {
+            let cf_num: CFNumber = CFNumber::wrap_under_get_rule(*value as *const _);
+            cf_num.to_i64()
+        } else {
+            None
+        }
+    }
+}
+
+fn get_bounds_from_dict(dict: &core_foundation::dictionary::CFDictionary<core_foundation::string::CFString, *const std::ffi::c_void>) -> (f64, f64, f64, f64) {
+    use core_foundation::string::CFString;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::number::CFNumber;
+    use core_foundation::base::TCFType;
+
+    let cf_key = CFString::new("kCGWindowBounds");
+    unsafe {
+        if let Some(bounds_ref) = dict.find(cf_key) {
+            let bounds_dict: CFDictionary<CFString, *const std::ffi::c_void> =
+                CFDictionary::wrap_under_get_rule(*bounds_ref as *const _);
+
+            let x = get_number_from_dict(&bounds_dict, "X").unwrap_or(0) as f64;
+            let y = get_number_from_dict(&bounds_dict, "Y").unwrap_or(0) as f64;
+            let width = get_number_from_dict(&bounds_dict, "Width").unwrap_or(0) as f64;
+            let height = get_number_from_dict(&bounds_dict, "Height").unwrap_or(0) as f64;
+
+            (x, y, width, height)
+        } else {
+            (0.0, 0.0, 0.0, 0.0)
+        }
+    }
+}
+
+/// Capture a window by its CGWindowID
+fn capture_window_by_id(window_id: u32, bounds: (f64, f64, f64, f64)) -> Result<image::RgbaImage> {
+    use foreign_types_shared::ForeignType;
+
+    let (x, y, width, height) = bounds;
+
+    let rect = CGRect {
+        origin: CGPoint { x: x as CGFloat, y: y as CGFloat },
+        size: CGSize { width: width as CGFloat, height: height as CGFloat },
+    };
+
+    unsafe {
+        let image_ref = CGWindowListCreateImage(
+            rect,
+            kCGWindowListOptionAll,
+            window_id,
+            kCGWindowImageDefault | kCGWindowImageBoundsIgnoreFraming,
+        );
+
+        if image_ref.is_null() {
+            return Err(Error::WindowOperationFailed("Failed to capture window image".to_string()));
+        }
+
+        let cg_image = core_graphics::image::CGImage::from_ptr(image_ref);
+
+        let img_width = cg_image.width();
+        let img_height = cg_image.height();
+        let bytes_per_row = cg_image.bytes_per_row();
+        let data = cg_image.data();
+
+        // Convert CGImage data to RgbaImage
+        // CGImage data is typically BGRA
+        let data_slice = data.bytes();
+        let data_len = data_slice.len();
+        let mut rgba_data = Vec::with_capacity(img_width * img_height * 4);
+
+        for row in 0..img_height {
+            for col in 0..img_width {
+                let offset = row * bytes_per_row + col * 4;
+                if offset + 3 < data_len {
+                    let b = data_slice[offset];
+                    let g = data_slice[offset + 1];
+                    let r = data_slice[offset + 2];
+                    let a = data_slice[offset + 3];
+                    rgba_data.push(r);
+                    rgba_data.push(g);
+                    rgba_data.push(b);
+                    rgba_data.push(a);
+                }
+            }
+        }
+
+        image::RgbaImage::from_raw(img_width as u32, img_height as u32, rgba_data)
+            .ok_or_else(|| Error::WindowOperationFailed("Failed to create image from raw data".to_string()))
+    }
+}
 
 // macOS-specific implementation for taking screenshots
 pub async fn take_screenshot<R: Runtime>(
@@ -22,61 +203,76 @@ pub async fn take_screenshot<R: Runtime>(
         .window_label
         .clone()
         .unwrap_or_else(|| "main".to_string());
-    
+
     // Get application name from params or use a default
-    let application_name = params.application_name.clone().unwrap_or_else(|| "".to_string());
+    let application_name = params.application_name.clone().unwrap_or_else(|| "moss".to_string());
 
     handle_screenshot_task(move || {
         // Get the window title to help identify the right window
         let window_title = get_window_title(&window_clone)?;
-        
+
         info!("[TAURI-MCP] Looking for window with title: {} (label: {})", window_title, window_label);
-        
-        // Get all windows using xcap - do this only once
-        let xcap_windows = match xcap::Window::all() {
-            Ok(windows) => windows,
-            Err(e) => return Err(Error::WindowOperationFailed(format!("Failed to get window list: {}", e))),
-        };
-        
+
+        // First try xcap (works for most windows)
+        let xcap_windows = xcap::Window::all().unwrap_or_default();
         info!("[TAURI-MCP] Found {} windows through xcap", xcap_windows.len());
-        
-        // Find the target window using optimized search strategy
+
+        // Try to find window using xcap first
         if let Some(window) = find_window(&xcap_windows, &window_title, &application_name) {
-            // Capture image directly from the window
+            info!("[TAURI-MCP] Found window via xcap, capturing...");
             let image = match window.capture_image() {
                 Ok(img) => img,
                 Err(e) => return Err(Error::WindowOperationFailed(format!("Failed to capture window image: {}", e))),
             };
-            
-            info!("[TAURI-MCP] Successfully captured window image: {}x{}", 
-                  image.width(), image.height());
-            
-            // Convert to DynamicImage for further processing
-            let dynamic_image = image::DynamicImage::ImageRgba8(image);
-            
-            // Process the image
-            match process_image(dynamic_image, &params_clone) {
-                Ok(data_url) => Ok(create_success_response(data_url)),
-                Err(e) => Err(e),
-            }
-        } else {
-            // No window found - check if it's a permissions issue
-            let only_menubar = xcap_windows.len() <= 1 && xcap_windows.iter().all(|w|
-                w.app_name() == "Window Server" || w.title() == "Menubar"
-            );
 
-            if only_menubar {
-                Err(Error::WindowOperationFailed(
-                    "Screen Recording permission required. Please grant permission in: \
-                    System Preferences > Privacy & Security > Screen Recording, \
-                    then restart the app.".to_string()
-                ))
-            } else {
-                Err(Error::WindowOperationFailed(
-                    "Window not found using any detection method. \
-                    Please ensure the window is visible and not minimized.".to_string()
-                ))
-            }
+            info!("[TAURI-MCP] Successfully captured window image: {}x{}",
+                  image.width(), image.height());
+
+            let dynamic_image = image::DynamicImage::ImageRgba8(image);
+            return process_image(dynamic_image, &params_clone)
+                .map(create_success_response);
+        }
+
+        // xcap didn't find it - try using CGWindowListCopyWindowInfo with kCGWindowListOptionAll
+        // This finds Tauri windows that xcap misses
+        info!("[TAURI-MCP] xcap didn't find window, trying CGWindowListCopyWindowInfo with kCGWindowListOptionAll...");
+
+        let cg_windows = get_all_windows_cg();
+        info!("[TAURI-MCP] Found {} windows through CGWindowListCopyWindowInfo", cg_windows.len());
+
+        // Find the target window in the CG list
+        if let Some(window_info) = find_window_cg(&cg_windows, &window_title, &application_name) {
+            info!("[TAURI-MCP] Found window via CG: id={}, name='{}', owner='{}'",
+                  window_info.window_id, window_info.name, window_info.owner_name);
+
+            // Capture using CGWindowListCreateImage
+            let image = capture_window_by_id(window_info.window_id, window_info.bounds)?;
+
+            info!("[TAURI-MCP] Successfully captured window image: {}x{}",
+                  image.width(), image.height());
+
+            let dynamic_image = image::DynamicImage::ImageRgba8(image);
+            return process_image(dynamic_image, &params_clone)
+                .map(create_success_response);
+        }
+
+        // Check if it's a permissions issue
+        let only_menubar = xcap_windows.len() <= 1 && xcap_windows.iter().all(|w|
+            w.app_name() == "Window Server" || w.title() == "Menubar"
+        );
+
+        if only_menubar {
+            Err(Error::WindowOperationFailed(
+                "Screen Recording permission required. Please grant permission in: \
+                System Preferences > Privacy & Security > Screen Recording, \
+                then restart the app.".to_string()
+            ))
+        } else {
+            Err(Error::WindowOperationFailed(
+                format!("Window not found. Searched for title='{}', app='{}'. \
+                Found {} xcap windows and {} CG windows.",
+                window_title, application_name, xcap_windows.len(), cg_windows.len())
+            ))
         }
     }).await
 }
@@ -186,6 +382,62 @@ fn find_window(xcap_windows: &[xcap::Window], window_title: &str, application_na
         window_title,
         application_name
     );
+    None
+}
+
+// Helper function to find window in CGWindowListCopyWindowInfo results
+fn find_window_cg(windows: &[WindowInfo], window_title: &str, application_name: &str) -> Option<WindowInfo> {
+    let application_name_lower = application_name.to_lowercase();
+    let window_title_lower = window_title.to_lowercase();
+
+    // Only consider layer 0 windows (normal windows)
+    let normal_windows: Vec<_> = windows.iter()
+        .filter(|w| w.layer == 0)
+        .collect();
+
+    info!("[TAURI-MCP] CG: Searching {} normal windows for title='{}', app='{}'",
+          normal_windows.len(), window_title, application_name);
+
+    // Step 1: Exact owner name + window name match
+    for window in &normal_windows {
+        if window.owner_name.to_lowercase() == application_name_lower
+            && window.name == window_title {
+            return Some((*window).clone());
+        }
+    }
+
+    // Step 2: Owner name contains app name + exact window name
+    for window in &normal_windows {
+        if window.owner_name.to_lowercase().contains(&application_name_lower)
+            && window.name == window_title {
+            return Some((*window).clone());
+        }
+    }
+
+    // Step 3: Owner name match + partial window name match
+    for window in &normal_windows {
+        if window.owner_name.to_lowercase().contains(&application_name_lower)
+            && window.name.to_lowercase().contains(&window_title_lower) {
+            return Some((*window).clone());
+        }
+    }
+
+    // Step 4: Just partial window name match with non-empty name
+    for window in &normal_windows {
+        if !window.name.is_empty()
+            && window.name.to_lowercase().contains(&window_title_lower) {
+            return Some((*window).clone());
+        }
+    }
+
+    // Step 5: Owner name match only (for windows with empty title)
+    for window in &normal_windows {
+        if window.owner_name.to_lowercase() == application_name_lower
+            && window.bounds.2 > 100.0 && window.bounds.3 > 100.0 { // reasonable size
+            return Some((*window).clone());
+        }
+    }
+
     None
 }
 
