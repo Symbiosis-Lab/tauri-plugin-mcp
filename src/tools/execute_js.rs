@@ -75,10 +75,9 @@ pub async fn handle_execute_js<R: Runtime>(
         .clone()
         .unwrap_or_else(|| "main".to_string());
 
-    // Verify the window exists
-    let _window = app
-        .get_webview_window(&window_label)
-        .ok_or_else(|| Error::Anyhow(format!("Window not found: {}", window_label)))?;
+    // Verify the webview exists (supports both WebviewWindow and multi-webview architectures)
+    let _webview = crate::desktop::get_webview_for_eval(app, &window_label)
+        .ok_or_else(|| Error::Anyhow(format!("Webview not found: {}", window_label)))?;
 
     // Execute JavaScript and get the result
     let result = execute_js_in_window(app.clone(), request).await;
@@ -118,8 +117,21 @@ async fn execute_js_in_window<R: Runtime>(
     // Get timeout or use default (5 seconds)
     let timeout = Duration::from_millis(params.timeout_ms.unwrap_or(5000));
 
-    // Emit event to execute the JavaScript in the specified window
-    app.emit_to(&window_label, "execute-js", &params.code)
+    // Determine the target label for emit_to
+    // In multi-webview architecture, window "main" has webview "preview"
+    let emit_target = if window_label == "main" {
+        // Check if this is multi-webview architecture
+        if app.get_webview_window(&window_label).is_none() && app.get_webview("preview").is_some() {
+            "preview".to_string()
+        } else {
+            window_label.clone()
+        }
+    } else {
+        window_label.clone()
+    };
+
+    // Emit event to execute the JavaScript in the specified webview
+    app.emit_to(&emit_target, "execute-js", &params.code)
         .map_err(|e| {
             ExecuteJsError::WebviewOperation(format!("Failed to emit execute-js event: {}", e))
         })?;

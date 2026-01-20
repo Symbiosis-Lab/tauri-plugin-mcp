@@ -1,4 +1,4 @@
-use crate::desktop::create_error_response;
+use crate::desktop::{create_error_response, WindowHandle};
 use crate::models::ScreenshotResponse;
 use crate::{Error, Result};
 use tauri::Runtime;
@@ -28,5 +28,25 @@ pub fn get_window_title<R: Runtime>(window: &tauri::WebviewWindow<R>) -> Result<
             "Failed to get window title: {}",
             e
         ))),
+    }
+}
+
+// Helper function to get window title from WindowHandle - supports both architectures
+pub fn get_window_title_from_handle<R: Runtime>(handle: &WindowHandle<R>) -> Result<String> {
+    match handle {
+        WindowHandle::WebviewWindow(w) => match w.title() {
+            Ok(title) => Ok(title),
+            Err(e) => Err(Error::WindowOperationFailed(format!(
+                "Failed to get window title: {}",
+                e
+            ))),
+        },
+        WindowHandle::Window(w) => match w.title() {
+            Ok(title) => Ok(title),
+            Err(e) => Err(Error::WindowOperationFailed(format!(
+                "Failed to get window title: {}",
+                e
+            ))),
+        },
     }
 }

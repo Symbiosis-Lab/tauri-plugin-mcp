@@ -16,11 +16,139 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, Runtime, plugin::PluginApi};
 use log::info;
 
+// ----- Window/Webview Resolution Helpers -----
+
+/// Represents either a WebviewWindow or a separate Window handle
+pub enum WindowHandle<R: Runtime> {
+    WebviewWindow(tauri::WebviewWindow<R>),
+    Window(tauri::Window<R>),
+}
+
+impl<R: Runtime> WindowHandle<R> {
+    pub fn minimize(&self) -> std::result::Result<(), tauri::Error> {
+        match self {
+            WindowHandle::WebviewWindow(w) => w.minimize(),
+            WindowHandle::Window(w) => w.minimize(),
+        }
+    }
+
+    pub fn maximize(&self) -> std::result::Result<(), tauri::Error> {
+        match self {
+            WindowHandle::WebviewWindow(w) => w.maximize(),
+            WindowHandle::Window(w) => w.maximize(),
+        }
+    }
+
+    pub fn unmaximize(&self) -> std::result::Result<(), tauri::Error> {
+        match self {
+            WindowHandle::WebviewWindow(w) => w.unmaximize(),
+            WindowHandle::Window(w) => w.unmaximize(),
+        }
+    }
+
+    pub fn close(&self) -> std::result::Result<(), tauri::Error> {
+        match self {
+            WindowHandle::WebviewWindow(w) => w.close(),
+            WindowHandle::Window(w) => w.close(),
+        }
+    }
+
+    pub fn show(&self) -> std::result::Result<(), tauri::Error> {
+        match self {
+            WindowHandle::WebviewWindow(w) => w.show(),
+            WindowHandle::Window(w) => w.show(),
+        }
+    }
+
+    pub fn hide(&self) -> std::result::Result<(), tauri::Error> {
+        match self {
+            WindowHandle::WebviewWindow(w) => w.hide(),
+            WindowHandle::Window(w) => w.hide(),
+        }
+    }
+
+    pub fn set_focus(&self) -> std::result::Result<(), tauri::Error> {
+        match self {
+            WindowHandle::WebviewWindow(w) => w.set_focus(),
+            WindowHandle::Window(w) => w.set_focus(),
+        }
+    }
+
+    pub fn set_position(&self, pos: tauri::LogicalPosition<f64>) -> std::result::Result<(), tauri::Error> {
+        match self {
+            WindowHandle::WebviewWindow(w) => w.set_position(pos),
+            WindowHandle::Window(w) => w.set_position(pos),
+        }
+    }
+
+    pub fn set_size(&self, size: tauri::LogicalSize<f64>) -> std::result::Result<(), tauri::Error> {
+        match self {
+            WindowHandle::WebviewWindow(w) => w.set_size(size),
+            WindowHandle::Window(w) => w.set_size(size),
+        }
+    }
+
+    pub fn center(&self) -> std::result::Result<(), tauri::Error> {
+        match self {
+            WindowHandle::WebviewWindow(w) => w.center(),
+            WindowHandle::Window(w) => w.center(),
+        }
+    }
+
+    pub fn set_fullscreen(&self, fullscreen: bool) -> std::result::Result<(), tauri::Error> {
+        match self {
+            WindowHandle::WebviewWindow(w) => w.set_fullscreen(fullscreen),
+            WindowHandle::Window(w) => w.set_fullscreen(fullscreen),
+        }
+    }
+
+    pub fn is_fullscreen(&self) -> std::result::Result<bool, tauri::Error> {
+        match self {
+            WindowHandle::WebviewWindow(w) => w.is_fullscreen(),
+            WindowHandle::Window(w) => w.is_fullscreen(),
+        }
+    }
+}
+
+/// Get a window handle by label, supporting both WebviewWindow and Window architectures.
+/// First tries get_webview_window, then falls back to get_window.
+pub fn get_window_handle<R: Runtime>(app: &AppHandle<R>, label: &str) -> Option<WindowHandle<R>> {
+    // First try WebviewWindow (combined window+webview)
+    if let Some(ww) = app.get_webview_window(label) {
+        return Some(WindowHandle::WebviewWindow(ww));
+    }
+    // Fall back to separate Window (multi-webview architecture)
+    if let Some(w) = app.get_window(label) {
+        return Some(WindowHandle::Window(w));
+    }
+    None
+}
+
+/// Get a webview for JS execution and DOM access.
+/// Supports both architectures:
+/// - WebviewWindow: returns the webview directly
+/// - Multi-webview: falls back to "preview" label for window "main"
+pub fn get_webview_for_eval<R: Runtime>(app: &AppHandle<R>, label: &str) -> Option<tauri::Webview<R>> {
+    // First try WebviewWindow with exact label (returns its inner webview)
+    if let Some(ww) = app.get_webview_window(label) {
+        return Some(ww.as_ref().clone());
+    }
+    // Multi-webview architecture: window "main" has child webview "preview"
+    if label == "main" {
+        if let Some(wv) = app.get_webview("preview") {
+            return Some(wv);
+        }
+    }
+    // Try direct webview lookup
+    app.get_webview(label)
+}
+
 // ----- Screenshot Utilities -----
 
-/// Helper structure to hold window for screenshot functions
+/// Helper structure to hold window for screenshot functions.
+/// Supports both WebviewWindow and Window architectures.
 pub struct ScreenshotContext<R: Runtime> {
-    pub window: tauri::WebviewWindow<R>,
+    pub window_handle: WindowHandle<R>,
 }
 
 /// Create a success response with data
@@ -84,9 +212,8 @@ impl<R: Runtime> TauriMcp<R> {
     ) -> crate::Result<ScreenshotResponse> {
         let window_label = payload.window_label.clone();
 
-        let window = self
-            .app
-            .get_webview_window(&window_label)
+        // Get window handle - supports both WebviewWindow and Window architectures
+        let window_handle = get_window_handle(&self.app, &window_label)
             .ok_or_else(|| Error::WindowNotFound(window_label.clone()))?;
 
         // Create shared parameters struct from the request
@@ -98,9 +225,9 @@ impl<R: Runtime> TauriMcp<R> {
             application_name: Some(self.application_name.clone()),
         };
 
-        // Create a context with the window for platform implementation
+        // Create a context with the window handle for platform implementation
         let window_context = ScreenshotContext {
-            window: window.clone(),
+            window_handle,
         };
 
         info!("[TAURI_MCP] Taking screenshot with default parameters");
@@ -116,12 +243,12 @@ impl<R: Runtime> TauriMcp<R> {
     ) -> Result<WindowManagerResponse> {
         let window_label = params.window_label.unwrap_or_else(|| "main".to_string());
 
-        // Get the window by label
-        let window = self.app.get_webview_window(&window_label).ok_or_else(|| {
+        // Get the window by label - supports both WebviewWindow and Window architectures
+        let window = get_window_handle(&self.app, &window_label).ok_or_else(|| {
             Error::WindowOperationFailed(format!("Window not found: {}", window_label))
         })?;
 
-        // Execute the requested operation
+        // Execute the requested operation using WindowHandle methods
         match params.operation.as_str() {
             "minimize" => {
                 window.minimize()?;
@@ -167,10 +294,7 @@ impl<R: Runtime> TauriMcp<R> {
             }
             "setPosition" => {
                 if let (Some(x), Some(y)) = (params.x, params.y) {
-                    window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                        x,
-                        y,
-                    }))?;
+                    window.set_position(tauri::LogicalPosition::new(x as f64, y as f64))?;
                     Ok(WindowManagerResponse {
                         success: true,
                         error: None,
@@ -183,8 +307,7 @@ impl<R: Runtime> TauriMcp<R> {
             }
             "setSize" => {
                 if let (Some(width), Some(height)) = (params.width, params.height) {
-                    window
-                        .set_size(tauri::Size::Physical(tauri::PhysicalSize { width, height }))?;
+                    window.set_size(tauri::LogicalSize::new(width as f64, height as f64))?;
                     Ok(WindowManagerResponse {
                         success: true,
                         error: None,

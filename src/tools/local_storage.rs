@@ -96,14 +96,13 @@ pub async fn handle_get_local_storage<R: Runtime>(
         }
     };
 
-    // Get the window
+    // Get the webview (supports both WebviewWindow and multi-webview architectures)
     let window_label = params
         .window_label
         .clone()
         .unwrap_or_else(|| "main".to_string());
-    let _window = app
-        .get_webview_window(&window_label)
-        .ok_or_else(|| Error::Anyhow(format!("Window not found: {}", window_label)))?;
+    let _webview = crate::desktop::get_webview_for_eval(app, &window_label)
+        .ok_or_else(|| Error::Anyhow(format!("Webview not found: {}", window_label)))?;
 
     // Call the implementation function with cloned app handle and params
     let result = perform_local_storage_operation(app.clone(), params.clone()).await;
@@ -126,6 +125,16 @@ pub async fn handle_get_local_storage<R: Runtime>(
     }
 }
 
+/// Get the emit target label for multi-webview architecture.
+fn get_emit_target<R: Runtime>(app: &AppHandle<R>, window_label: &str) -> String {
+    if window_label == "main" && app.get_webview_window(window_label).is_none() {
+        if app.get_webview("preview").is_some() {
+            return "preview".to_string();
+        }
+    }
+    window_label.to_string()
+}
+
 // Implementation function
 async fn perform_local_storage_operation<R: Runtime>(
     app: AppHandle<R>,
@@ -137,8 +146,11 @@ async fn perform_local_storage_operation<R: Runtime>(
         .clone()
         .unwrap_or_else(|| "main".to_string());
 
-    // Emit event to the window
-    app.emit_to(&window_label, "get-local-storage", &params)
+    // Get the emit target for multi-webview architecture
+    let emit_target = get_emit_target(&app, &window_label);
+
+    // Emit event to the webview
+    app.emit_to(&emit_target, "get-local-storage", &params)
         .map_err(|e| LocalStorageError::WebviewOperation(format!("Failed to emit event: {}", e)))?;
 
     // Set up channel for response

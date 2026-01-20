@@ -2,7 +2,19 @@ use serde::{Deserialize, Serialize, Serializer}; // Add Deserialize for parsing 
 use serde_json::Value;
 use std::fmt;
 use std::sync::mpsc;
-use tauri::{AppHandle, Error as TauriError, Listener, Manager, Runtime, WebviewWindow};
+use tauri::{AppHandle, Error as TauriError, Listener, Manager, Runtime};
+
+/// Get the emit target label for multi-webview architecture.
+/// In multi-webview mode, window "main" has webview "preview".
+fn get_emit_target<R: Runtime>(app: &AppHandle<R>, window_label: &str) -> String {
+    if window_label == "main" && app.get_webview_window(window_label).is_none() {
+        // Multi-webview architecture: use "preview" webview label
+        if app.get_webview("preview").is_some() {
+            return "preview".to_string();
+        }
+    }
+    window_label.to_string()
+}
 
 // Custom error enum for the get_dom_text command
 #[derive(Debug)] // Add Serialize for the enum itself if it needs to be directly serialized
@@ -76,11 +88,15 @@ pub async fn handle_get_dom<R: Runtime>(
         )));
     };
 
-    // Get the window by label using the Manager trait
-    let window = app.get_webview_window(&window_label).ok_or_else(|| {
-        crate::error::Error::Anyhow(format!("Window not found: {}", window_label))
+    // Verify the webview exists (supports both WebviewWindow and multi-webview architectures)
+    let _webview = crate::desktop::get_webview_for_eval(app, &window_label).ok_or_else(|| {
+        crate::error::Error::Anyhow(format!("Webview not found: {}", window_label))
     })?;
-    let result = get_dom_text(app.clone(), window).await;
+
+    // Get the emit target label for events
+    let emit_target = get_emit_target(app, &window_label);
+
+    let result = get_dom_text(app.clone(), emit_target).await;
     match result {
         Ok(dom_text) => {
             let data = serde_json::to_value(dom_text).map_err(|e| {
@@ -103,9 +119,9 @@ use tauri::Emitter;
 #[tauri::command]
 pub async fn get_dom_text<R: Runtime>(
     app: AppHandle<R>,
-    _window: WebviewWindow<R>,
+    emit_target: String,
 ) -> Result<String, GetDomError> {
-    app.emit_to("main", "got-dom-content", "test").unwrap();
+    app.emit_to(&emit_target, "got-dom-content", "test").unwrap();
 
     let (tx, rx) = mpsc::channel();
 
@@ -172,6 +188,9 @@ pub async fn handle_get_element_position<R: Runtime>(
         let _ = tx.send(payload);
     });
 
+    // Get the emit target label for multi-webview architecture
+    let emit_target = get_emit_target(app, &payload.window_label);
+
     // Prepare the request payload with selector information
     let js_payload = serde_json::json!({
         "windowLabel": payload.window_label,
@@ -182,7 +201,7 @@ pub async fn handle_get_element_position<R: Runtime>(
     });
 
     // Emit the event to the webview
-    app.emit_to(&payload.window_label, "get-element-position", js_payload)
+    app.emit_to(&emit_target, "get-element-position", js_payload)
         .map_err(|e| {
             crate::error::Error::Anyhow(format!("Failed to emit get-element-position event: {}", e))
         })?;
@@ -269,6 +288,9 @@ pub async fn handle_send_text_to_element<R: Runtime>(
         let _ = tx.send(payload);
     });
 
+    // Get the emit target label for multi-webview architecture
+    let emit_target = get_emit_target(app, &payload.window_label);
+
     // Prepare the request payload
     let js_payload = serde_json::json!({
         "selectorType": payload.selector_type,
@@ -278,7 +300,7 @@ pub async fn handle_send_text_to_element<R: Runtime>(
     });
 
     // Emit the event to the webview
-    app.emit_to(&payload.window_label, "send-text-to-element", js_payload)
+    app.emit_to(&emit_target, "send-text-to-element", js_payload)
         .map_err(|e| {
             crate::error::Error::Anyhow(format!("Failed to emit send-text-to-element event: {}", e))
         })?;

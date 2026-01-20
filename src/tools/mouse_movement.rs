@@ -18,39 +18,42 @@ pub async fn simulate_mouse_movement_async<R: Runtime>(
         params
     );
 
-    // Get the window reference
-    let window = app
-        .get_webview_window("main")
+    // Get the window reference (supports both WebviewWindow and Window architectures)
+    let window_handle = crate::desktop::get_window_handle(app, "main")
         .ok_or_else(|| Error::Anyhow("Main window not found".to_string()))?;
 
     // Get window position (outer includes window borders/decorations)
-    let window_position = window
-        .outer_position()
-        .map_err(|e| Error::Anyhow(format!("Failed to get window position: {}", e)))?;
+    let window_position = match &window_handle {
+        crate::desktop::WindowHandle::WebviewWindow(w) => w.outer_position(),
+        crate::desktop::WindowHandle::Window(w) => w.outer_position(),
+    }.map_err(|e| Error::Anyhow(format!("Failed to get window position: {}", e)))?;
     info!(
         "[MOUSE_MOVEMENT] Window outer position: {:?}",
         window_position
     );
 
     // Also get inner position for comparison
-    let window_inner_position = window
-        .inner_position()
-        .map_err(|e| Error::Anyhow(format!("Failed to get window inner position: {}", e)))?;
+    let window_inner_position = match &window_handle {
+        crate::desktop::WindowHandle::WebviewWindow(w) => w.inner_position(),
+        crate::desktop::WindowHandle::Window(w) => w.inner_position(),
+    }.map_err(|e| Error::Anyhow(format!("Failed to get window inner position: {}", e)))?;
     info!(
         "[MOUSE_MOVEMENT] Window inner position: {:?}",
         window_inner_position
     );
 
     // Get window size for reference
-    let window_size = window
-        .inner_size()
-        .map_err(|e| Error::Anyhow(format!("Failed to get window size: {}", e)))?;
+    let window_size = match &window_handle {
+        crate::desktop::WindowHandle::WebviewWindow(w) => w.inner_size(),
+        crate::desktop::WindowHandle::Window(w) => w.inner_size(),
+    }.map_err(|e| Error::Anyhow(format!("Failed to get window size: {}", e)))?;
     info!("[MOUSE_MOVEMENT] Window inner size: {:?}", window_size);
 
     // Get window scale factor for high DPI screens
-    let scale_factor = window
-        .scale_factor()
-        .map_err(|e| Error::Anyhow(format!("Failed to get scale factor: {}", e)))?;
+    let scale_factor = match &window_handle {
+        crate::desktop::WindowHandle::WebviewWindow(w) => w.scale_factor(),
+        crate::desktop::WindowHandle::Window(w) => w.scale_factor(),
+    }.map_err(|e| Error::Anyhow(format!("Failed to get scale factor: {}", e)))?;
     info!("[MOUSE_MOVEMENT] Window scale factor: {}", scale_factor);
 
     let x = params.x;

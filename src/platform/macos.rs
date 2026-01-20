@@ -12,7 +12,7 @@ use core_graphics::base::CGFloat;
 
 // Import shared functionality
 use crate::desktop::{ScreenshotContext, create_success_response};
-use crate::platform::shared::{get_window_title, handle_screenshot_task};
+use crate::platform::shared::{get_window_title_from_handle, handle_screenshot_task};
 use crate::shared::ScreenshotParams;
 use crate::tools::take_screenshot::process_image;
 
@@ -198,7 +198,6 @@ pub async fn take_screenshot<R: Runtime>(
 ) -> Result<ScreenshotResponse> {
     // Clone necessary parameters for use in the closure
     let params_clone = params.clone();
-    let window_clone = window_context.window.clone();
     let window_label = params
         .window_label
         .clone()
@@ -207,10 +206,10 @@ pub async fn take_screenshot<R: Runtime>(
     // Get application name from params or use a default
     let application_name = params.application_name.clone().unwrap_or_else(|| "moss".to_string());
 
-    handle_screenshot_task(move || {
-        // Get the window title to help identify the right window
-        let window_title = get_window_title(&window_clone)?;
+    // Get window title from the handle (works with both Window and WebviewWindow)
+    let window_title = get_window_title_from_handle(&window_context.window_handle)?;
 
+    handle_screenshot_task(move || {
         info!("[TAURI-MCP] Looking for window with title: {} (label: {})", window_title, window_label);
 
         // First try xcap (works for most windows)

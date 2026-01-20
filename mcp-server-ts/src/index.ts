@@ -6,10 +6,6 @@ import { registerAllTools, initializeSocket } from "./tools/index.js";
 const server = new McpServer({
   name: "tauri-mcp",
   version: "1.0.0",
-  capabilities: {
-    resources: {},
-    tools: {},
-  },
 });
 
 async function main() {
