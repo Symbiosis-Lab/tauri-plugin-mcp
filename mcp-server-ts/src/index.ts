@@ -3,13 +3,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { registerAllTools, initializeSocket } from "./tools/index.js";
 
 // Create server instance
+// Note: capabilities are inferred from registered tools/resources in MCP SDK 1.25+
 const server = new McpServer({
   name: "tauri-mcp",
   version: "1.0.0",
-  capabilities: {
-    resources: {},
-    tools: {},
-  },
 });
 
 async function main() {
