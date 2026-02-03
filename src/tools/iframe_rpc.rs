@@ -132,13 +132,7 @@ async fn execute_iframe_rpc<R: Runtime>(
         "args": params.args
     });
 
-    // Emit event to trigger the iframe RPC in the specified window
-    app.emit_to(&window_label, "iframe-rpc", &rpc_payload)
-        .map_err(|e| {
-            IframeRpcError::WebviewOperation(format!("Failed to emit iframe-rpc event: {}", e))
-        })?;
-
-    // Set up a channel to receive the response
+    // Set up a channel to receive the response BEFORE emitting (avoid race condition)
     let (tx, rx) = mpsc::channel();
 
     // Listen for response
@@ -146,6 +140,19 @@ async fn execute_iframe_rpc<R: Runtime>(
         let payload = event.payload().to_string();
         let _ = tx.send(payload);
     });
+
+    eprintln!("[TAURI_MCP] Emitting iframe-rpc event to webview: {}", window_label);
+
+    // First try emit_to to the resolved webview label
+    if let Err(e) = app.emit_to(&window_label, "iframe-rpc", &rpc_payload) {
+        eprintln!("[TAURI_MCP] emit_to failed, trying broadcast: {}", e);
+    }
+
+    // Also broadcast as fallback in case emit_to doesn't reach the webview
+    app.emit("iframe-rpc", &rpc_payload)
+        .map_err(|e| {
+            IframeRpcError::WebviewOperation(format!("Failed to emit iframe-rpc event: {}", e))
+        })?;
 
     // Wait for the response with timeout
     match rx.recv_timeout(timeout) {
