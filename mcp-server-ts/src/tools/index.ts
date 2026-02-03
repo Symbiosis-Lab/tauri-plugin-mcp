@@ -3,6 +3,7 @@ import { registerTakeScreenshotTool } from "./take_screenshot.js";
 import { registerCaptureScreenshotTool } from "./capture_screenshot.js";
 import { registerExecuteJsTool } from "./execute_js.js";
 import { registerGetDomTool } from "./get_dom.js";
+import { registerIframeRpcTool } from "./iframe_rpc.js";
 import { registerManageWindowTool } from "./manage_window.js";
 import { registerManageLocalStorageTool } from "./manage_local_storage.js";
 import { registerTextInputTool } from "./text_input.js";
@@ -20,6 +21,7 @@ export function registerAllTools(server: McpServer) {
   registerCaptureScreenshotTool(server);  // JS-based screenshot (no permissions/focus needed)
   registerExecuteJsTool(server);
   registerGetDomTool(server);
+  registerIframeRpcTool(server);
   registerManageWindowTool(server);
   registerManageLocalStorageTool(server);
   registerTextInputTool(server);

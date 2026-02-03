@@ -7,6 +7,7 @@ use crate::socket_server::SocketResponse;
 
 // Export command modules
 pub mod execute_js;
+pub mod iframe_rpc;
 pub mod local_storage;
 pub mod mouse_movement;
 pub mod ping;
@@ -17,6 +18,7 @@ pub mod window_manager;
 
 // Re-export command handler functions
 pub use execute_js::handle_execute_js;
+pub use iframe_rpc::handle_iframe_rpc;
 pub use local_storage::handle_get_local_storage;
 pub use mouse_movement::handle_simulate_mouse_movement;
 pub use ping::handle_ping;
@@ -46,6 +48,7 @@ pub async fn handle_command<R: Runtime>(
         commands::GET_DOM => handle_get_dom(app, payload).await,
         commands::MANAGE_LOCAL_STORAGE => handle_get_local_storage(app, payload).await,
         commands::EXECUTE_JS => handle_execute_js(app, payload).await,
+        commands::IFRAME_RPC => handle_iframe_rpc(app, payload).await,
         commands::MANAGE_WINDOW => handle_manage_window(app, payload).await,
         commands::SIMULATE_TEXT_INPUT => handle_simulate_text_input(app, payload).await,
         commands::SIMULATE_MOUSE_MOVEMENT => handle_simulate_mouse_movement(app, payload).await,

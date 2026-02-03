@@ -132,6 +132,7 @@ pub mod commands {
     pub const GET_DOM: &str = "get_dom";
     pub const MANAGE_LOCAL_STORAGE: &str = "manage_local_storage";
     pub const EXECUTE_JS: &str = "execute_js";
+    pub const IFRAME_RPC: &str = "iframe_rpc";
     pub const MANAGE_WINDOW: &str = "manage_window";
     pub const SIMULATE_TEXT_INPUT: &str = "simulate_text_input";
     pub const SIMULATE_MOUSE_MOVEMENT: &str = "simulate_mouse_movement";
