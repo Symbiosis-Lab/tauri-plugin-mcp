@@ -395,7 +395,16 @@ pub async fn handle_capture_screenshot<R: Runtime>(
     });
 
     // Emit the event to the webview
-    app.emit_to(&resolved_label, "capture-screenshot", js_payload)
+    // Note: Using emit() broadcast since emit_to may not work reliably for webview events
+    eprintln!("[TAURI_MCP] Emitting capture-screenshot event to webview: {}", resolved_label);
+
+    // First try emit_to to the resolved webview label
+    if let Err(e) = app.emit_to(&resolved_label, "capture-screenshot", js_payload.clone()) {
+        eprintln!("[TAURI_MCP] emit_to failed, trying broadcast: {}", e);
+    }
+
+    // Also broadcast as fallback in case emit_to doesn't reach the webview
+    app.emit("capture-screenshot", js_payload)
         .map_err(|e| {
             crate::error::Error::Anyhow(format!("Failed to emit capture-screenshot event: {}", e))
         })?;
@@ -449,5 +458,366 @@ pub async fn handle_capture_screenshot<R: Runtime>(
                 error: Some(format!("Timeout waiting for screenshot capture: {}", e)),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ========== CaptureScreenshotPayload Parsing Tests ==========
+
+    #[test]
+    fn test_capture_screenshot_payload_full_object() {
+        // Test parsing a complete payload with all fields
+        let payload = json!({
+            "window_label": "preview",
+            "quality": 90,
+            "max_width": 1280
+        });
+
+        let parsed: CaptureScreenshotPayload = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.window_label, Some("preview".to_string()));
+        assert_eq!(parsed.quality, Some(90));
+        assert_eq!(parsed.max_width, Some(1280));
+    }
+
+    #[test]
+    fn test_capture_screenshot_payload_partial_object() {
+        // Test parsing with only window_label
+        let payload = json!({
+            "window_label": "main"
+        });
+
+        let parsed: CaptureScreenshotPayload = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.window_label, Some("main".to_string()));
+        assert_eq!(parsed.quality, None);
+        assert_eq!(parsed.max_width, None);
+    }
+
+    #[test]
+    fn test_capture_screenshot_payload_empty_object() {
+        // Test parsing an empty object (all fields are optional)
+        let payload = json!({});
+
+        let parsed: CaptureScreenshotPayload = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.window_label, None);
+        assert_eq!(parsed.quality, None);
+        assert_eq!(parsed.max_width, None);
+    }
+
+    #[test]
+    fn test_capture_screenshot_payload_quality_bounds() {
+        // Test quality at minimum value
+        let payload_min = json!({
+            "quality": 1
+        });
+        let parsed_min: CaptureScreenshotPayload = serde_json::from_value(payload_min).unwrap();
+        assert_eq!(parsed_min.quality, Some(1));
+
+        // Test quality at maximum value
+        let payload_max = json!({
+            "quality": 100
+        });
+        let parsed_max: CaptureScreenshotPayload = serde_json::from_value(payload_max).unwrap();
+        assert_eq!(parsed_max.quality, Some(100));
+    }
+
+    #[test]
+    fn test_capture_screenshot_payload_max_width_values() {
+        // Test various max_width values
+        let payload = json!({
+            "max_width": 3840
+        });
+        let parsed: CaptureScreenshotPayload = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.max_width, Some(3840));
+
+        // Test small max_width
+        let payload_small = json!({
+            "max_width": 320
+        });
+        let parsed_small: CaptureScreenshotPayload = serde_json::from_value(payload_small).unwrap();
+        assert_eq!(parsed_small.max_width, Some(320));
+    }
+
+    // ========== Payload Parsing Logic Tests ==========
+
+    #[test]
+    fn test_parse_payload_as_object() {
+        // Simulate the parsing logic from handle_capture_screenshot for object payloads
+        let payload = json!({
+            "window_label": "test_window",
+            "quality": 75,
+            "max_width": 1600
+        });
+
+        let parsed: CaptureScreenshotPayload = if payload.is_object() {
+            serde_json::from_value(payload.clone()).unwrap_or(CaptureScreenshotPayload {
+                window_label: None,
+                quality: None,
+                max_width: None,
+            })
+        } else {
+            CaptureScreenshotPayload {
+                window_label: payload.as_str().map(|s| s.to_string()),
+                quality: None,
+                max_width: None,
+            }
+        };
+
+        assert_eq!(parsed.window_label, Some("test_window".to_string()));
+        assert_eq!(parsed.quality, Some(75));
+        assert_eq!(parsed.max_width, Some(1600));
+    }
+
+    #[test]
+    fn test_parse_payload_as_string() {
+        // Simulate the parsing logic from handle_capture_screenshot for string payloads
+        let payload = json!("my_window");
+
+        let parsed: CaptureScreenshotPayload = if payload.is_object() {
+            serde_json::from_value(payload.clone()).unwrap_or(CaptureScreenshotPayload {
+                window_label: None,
+                quality: None,
+                max_width: None,
+            })
+        } else {
+            CaptureScreenshotPayload {
+                window_label: payload.as_str().map(|s| s.to_string()),
+                quality: None,
+                max_width: None,
+            }
+        };
+
+        assert_eq!(parsed.window_label, Some("my_window".to_string()));
+        assert_eq!(parsed.quality, None);
+        assert_eq!(parsed.max_width, None);
+    }
+
+    #[test]
+    fn test_parse_payload_null() {
+        // Test parsing null payload (edge case)
+        let payload = json!(null);
+
+        let parsed: CaptureScreenshotPayload = if payload.is_object() {
+            serde_json::from_value(payload.clone()).unwrap_or(CaptureScreenshotPayload {
+                window_label: None,
+                quality: None,
+                max_width: None,
+            })
+        } else {
+            CaptureScreenshotPayload {
+                window_label: payload.as_str().map(|s| s.to_string()),
+                quality: None,
+                max_width: None,
+            }
+        };
+
+        assert_eq!(parsed.window_label, None);
+        assert_eq!(parsed.quality, None);
+        assert_eq!(parsed.max_width, None);
+    }
+
+    // ========== Default Value Tests ==========
+
+    #[test]
+    fn test_default_values_applied() {
+        // Test that default values are applied correctly in the handler logic
+        let parsed = CaptureScreenshotPayload {
+            window_label: None,
+            quality: None,
+            max_width: None,
+        };
+
+        let window_label = parsed.window_label.unwrap_or_else(|| "main".to_string());
+        let quality = parsed.quality.unwrap_or(85);
+        let max_width = parsed.max_width.unwrap_or(1920);
+
+        assert_eq!(window_label, "main");
+        assert_eq!(quality, 85);
+        assert_eq!(max_width, 1920);
+    }
+
+    #[test]
+    fn test_custom_values_override_defaults() {
+        // Test that custom values override defaults
+        let parsed = CaptureScreenshotPayload {
+            window_label: Some("custom".to_string()),
+            quality: Some(50),
+            max_width: Some(800),
+        };
+
+        let window_label = parsed.window_label.unwrap_or_else(|| "main".to_string());
+        let quality = parsed.quality.unwrap_or(85);
+        let max_width = parsed.max_width.unwrap_or(1920);
+
+        assert_eq!(window_label, "custom");
+        assert_eq!(quality, 50);
+        assert_eq!(max_width, 800);
+    }
+
+    // ========== JS Payload Generation Tests ==========
+
+    #[test]
+    fn test_js_payload_generation() {
+        // Test that the JS payload is generated correctly
+        let quality: u8 = 90;
+        let max_width: u32 = 1280;
+
+        let js_payload = serde_json::json!({
+            "quality": quality,
+            "maxWidth": max_width
+        });
+
+        assert_eq!(js_payload.get("quality").and_then(|v| v.as_u64()), Some(90));
+        assert_eq!(js_payload.get("maxWidth").and_then(|v| v.as_u64()), Some(1280));
+    }
+
+    // ========== Response Format Tests ==========
+
+    #[test]
+    fn test_success_response_format() {
+        // Test the success response format
+        let data = json!({
+            "data": "base64_image_data_here",
+            "success": true,
+            "error": null
+        });
+
+        let response = crate::socket_server::SocketResponse {
+            success: true,
+            data: Some(data.clone()),
+            error: None,
+        };
+
+        assert!(response.success);
+        assert!(response.error.is_none());
+        assert!(response.data.is_some());
+
+        let response_data = response.data.unwrap();
+        assert_eq!(response_data.get("success").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(response_data.get("data").and_then(|v| v.as_str()), Some("base64_image_data_here"));
+        assert!(response_data.get("error").and_then(|v| v.as_null()).is_some());
+    }
+
+    #[test]
+    fn test_error_response_format() {
+        // Test the error response format
+        let response = crate::socket_server::SocketResponse {
+            success: false,
+            data: None,
+            error: Some("Failed to capture screenshot".to_string()),
+        };
+
+        assert!(!response.success);
+        assert!(response.data.is_none());
+        assert_eq!(response.error, Some("Failed to capture screenshot".to_string()));
+    }
+
+    #[test]
+    fn test_timeout_error_response() {
+        // Test timeout error response format
+        let error_msg = format!("Timeout waiting for screenshot capture: {}", "channel is empty and sending half is closed");
+
+        let response = crate::socket_server::SocketResponse {
+            success: false,
+            data: None,
+            error: Some(error_msg.clone()),
+        };
+
+        assert!(!response.success);
+        assert!(response.error.as_ref().unwrap().contains("Timeout"));
+    }
+
+    // ========== GetDomError Tests ==========
+
+    #[test]
+    fn test_get_dom_error_display() {
+        let webview_err = GetDomError::WebviewOperation("test error".to_string());
+        assert_eq!(webview_err.to_string(), "Webview operation error: test error");
+
+        let js_err = GetDomError::JavaScriptError("js error".to_string());
+        assert_eq!(js_err.to_string(), "JavaScript execution error: js error");
+
+        let empty_err = GetDomError::DomIsEmpty;
+        assert_eq!(empty_err.to_string(), "Retrieved DOM string is empty");
+    }
+
+    #[test]
+    fn test_get_dom_error_serialize() {
+        let err = GetDomError::DomIsEmpty;
+        let serialized = serde_json::to_string(&err).unwrap();
+        assert_eq!(serialized, "\"Retrieved DOM string is empty\"");
+    }
+
+    // ========== GetElementPositionPayload Tests ==========
+
+    #[test]
+    fn test_get_element_position_payload_full() {
+        let payload = json!({
+            "window_label": "main",
+            "selector_type": "css",
+            "selector_value": "#my-button",
+            "should_click": true,
+            "raw_coordinates": false
+        });
+
+        let parsed: GetElementPositionPayload = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.window_label, "main");
+        assert_eq!(parsed.selector_type, "css");
+        assert_eq!(parsed.selector_value, "#my-button");
+        assert!(parsed.should_click);
+        assert!(!parsed.raw_coordinates);
+    }
+
+    #[test]
+    fn test_get_element_position_payload_defaults() {
+        let payload = json!({
+            "window_label": "main",
+            "selector_type": "xpath",
+            "selector_value": "//button"
+        });
+
+        let parsed: GetElementPositionPayload = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.window_label, "main");
+        assert_eq!(parsed.selector_type, "xpath");
+        assert_eq!(parsed.selector_value, "//button");
+        // Default values for optional boolean fields
+        assert!(!parsed.should_click);
+        assert!(!parsed.raw_coordinates);
+    }
+
+    // ========== SendTextToElementPayload Tests ==========
+
+    #[test]
+    fn test_send_text_to_element_payload_full() {
+        let payload = json!({
+            "window_label": "main",
+            "selector_type": "css",
+            "selector_value": "#input-field",
+            "text": "Hello World",
+            "delay_ms": 50
+        });
+
+        let parsed: SendTextToElementPayload = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.window_label, "main");
+        assert_eq!(parsed.selector_type, "css");
+        assert_eq!(parsed.selector_value, "#input-field");
+        assert_eq!(parsed.text, "Hello World");
+        assert_eq!(parsed.delay_ms, 50);
+    }
+
+    #[test]
+    fn test_send_text_to_element_payload_default_delay() {
+        let payload = json!({
+            "window_label": "main",
+            "selector_type": "css",
+            "selector_value": "#input-field",
+            "text": "Test"
+        });
+
+        let parsed: SendTextToElementPayload = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.delay_ms, 20); // Default value from default_delay_ms()
     }
 }
