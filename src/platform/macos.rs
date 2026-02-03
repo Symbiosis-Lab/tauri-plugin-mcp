@@ -116,4 +116,64 @@ fn find_window(xcap_windows: &[xcap::Window], window_title: &str, application_na
     None
 }
 
+/// Take a screenshot by searching for the window by application name only
+/// Used for multi-webview architectures where we don't have a WebviewWindow handle
+pub async fn take_screenshot_by_app_name(
+    params: ScreenshotParams,
+    application_name: String,
+) -> Result<ScreenshotResponse> {
+    let params_clone = params.clone();
+    let application_name_lower = application_name.to_lowercase();
+
+    handle_screenshot_task(move || {
+        info!("[TAURI-MCP] Taking screenshot by app_name: '{}'", application_name);
+
+        // Get all windows using xcap
+        let xcap_windows = match xcap::Window::all() {
+            Ok(windows) => windows,
+            Err(e) => return Err(Error::WindowOperationFailed(format!("Failed to get window list: {}", e))),
+        };
+
+        info!("[TAURI-MCP] Found {} windows through xcap", xcap_windows.len());
+
+        // Find window by application name
+        for window in &xcap_windows {
+            if window.is_minimized() {
+                continue;
+            }
+
+            let app_name = window.app_name().to_lowercase();
+            debug!("[TAURI-MCP] Checking window: app_name='{}', title='{}'", app_name, window.title());
+
+            if app_name.contains(&application_name_lower) {
+                info!("[TAURI-MCP] Found window by app name: '{}' (title: '{}')", window.app_name(), window.title());
+
+                // Capture image directly from the window
+                let image = match window.capture_image() {
+                    Ok(img) => img,
+                    Err(e) => return Err(Error::WindowOperationFailed(format!("Failed to capture window image: {}", e))),
+                };
+
+                info!("[TAURI-MCP] Successfully captured window image: {}x{}", image.width(), image.height());
+
+                // Convert to DynamicImage for further processing
+                let dynamic_image = image::DynamicImage::ImageRgba8(image);
+
+                // Process the image
+                return match process_image(dynamic_image, &params_clone) {
+                    Ok(data_url) => Ok(create_success_response(data_url)),
+                    Err(e) => Err(e),
+                };
+            }
+        }
+
+        // No window found
+        error!("[TAURI-MCP] No window found with app_name containing '{}'", application_name);
+        Err(Error::WindowOperationFailed(format!(
+            "Window not found by app_name '{}'. Please ensure the window is visible and not minimized.",
+            application_name
+        )))
+    }).await
+}
+
 // Add any other macOS-specific functionality here

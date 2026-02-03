@@ -128,6 +128,7 @@ pub trait McpInterface {
 pub mod commands {
     pub const PING: &str = "ping";
     pub const TAKE_SCREENSHOT: &str = "take_screenshot";
+    pub const CAPTURE_SCREENSHOT: &str = "capture_screenshot"; // JS-based screenshot (no permissions/focus needed)
     pub const GET_DOM: &str = "get_dom";
     pub const MANAGE_LOCAL_STORAGE: &str = "manage_local_storage";
     pub const EXECUTE_JS: &str = "execute_js";

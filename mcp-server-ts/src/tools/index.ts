@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerTakeScreenshotTool } from "./take_screenshot.js";
+import { registerCaptureScreenshotTool } from "./capture_screenshot.js";
 import { registerExecuteJsTool } from "./execute_js.js";
 import { registerGetDomTool } from "./get_dom.js";
 import { registerManageWindowTool } from "./manage_window.js";
@@ -16,6 +17,7 @@ export { socketClient } from "./client.js";
 // Function to register all tools with a server instance
 export function registerAllTools(server: McpServer) {
   registerTakeScreenshotTool(server);
+  registerCaptureScreenshotTool(server);  // JS-based screenshot (no permissions/focus needed)
   registerExecuteJsTool(server);
   registerGetDomTool(server);
   registerManageWindowTool(server);

@@ -22,7 +22,7 @@ pub use mouse_movement::handle_simulate_mouse_movement;
 pub use ping::handle_ping;
 pub use take_screenshot::handle_take_screenshot;
 pub use text_input::handle_simulate_text_input;
-pub use webview::{handle_get_dom, handle_get_element_position, handle_send_text_to_element};
+pub use webview::{handle_get_dom, handle_get_element_position, handle_send_text_to_element, handle_capture_screenshot};
 pub use window_manager::handle_manage_window;
 
 /// Handle command routing for socket requests
@@ -42,6 +42,7 @@ pub async fn handle_command<R: Runtime>(
     let result = match command {
         commands::PING => handle_ping(app, payload),
         commands::TAKE_SCREENSHOT => handle_take_screenshot(app, payload).await,
+        commands::CAPTURE_SCREENSHOT => handle_capture_screenshot(app, payload).await,
         commands::GET_DOM => handle_get_dom(app, payload).await,
         commands::MANAGE_LOCAL_STORAGE => handle_get_local_storage(app, payload).await,
         commands::EXECUTE_JS => handle_execute_js(app, payload).await,

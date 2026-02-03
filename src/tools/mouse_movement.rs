@@ -1,6 +1,7 @@
 use serde_json::Value;
 use tauri::{AppHandle, Manager, Runtime};
 
+use crate::desktop::resolve_window;
 use crate::error::Error;
 use crate::models::MouseMovementRequest;
 use crate::shared::{MouseMovementParams, MouseMovementResult};
@@ -18,10 +19,8 @@ pub async fn simulate_mouse_movement_async<R: Runtime>(
         params
     );
 
-    // Get the window reference
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| Error::Anyhow("Main window not found".to_string()))?;
+    // Get the window reference (supports both single and multi-webview architectures)
+    let window = resolve_window(app, "main")?;
 
     // Get window position (outer includes window borders/decorations)
     let window_position = window

@@ -5,6 +5,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Listener, Manager, Runtime};
 
+use crate::desktop::resolve_webview;
 use crate::error::Error;
 use crate::models::LocalStorageRequest;
 use crate::socket_server::SocketResponse;
@@ -96,17 +97,19 @@ pub async fn handle_get_local_storage<R: Runtime>(
         }
     };
 
-    // Get the window
+    // Get the webview (supports both single and multi-webview architectures)
     let window_label = params
         .window_label
         .clone()
         .unwrap_or_else(|| "main".to_string());
-    let _window = app
-        .get_webview_window(&window_label)
-        .ok_or_else(|| Error::Anyhow(format!("Window not found: {}", window_label)))?;
+    let (resolved_label, _webview) = resolve_webview(app, &window_label)?;
 
-    // Call the implementation function with cloned app handle and params
-    let result = perform_local_storage_operation(app.clone(), params.clone()).await;
+    // Update params with resolved label
+    let mut resolved_params = params.clone();
+    resolved_params.window_label = Some(resolved_label);
+
+    // Call the implementation function with cloned app handle and resolved params
+    let result = perform_local_storage_operation(app.clone(), resolved_params).await;
 
     // Handle the result
     match result {

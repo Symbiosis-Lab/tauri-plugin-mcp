@@ -7,16 +7,18 @@ let localStorageUnlistenFunction: (() => void) | null = null;
 let jsExecutionUnlistenFunction: (() => void) | null = null;
 let elementPositionUnlistenFunction: (() => void) | null = null;
 let sendTextToElementUnlistenFunction: (() => void) | null = null;
+let captureScreenshotUnlistenFunction: (() => void) | null = null;
 
-export async function setupPluginListeners() { 
+export async function setupPluginListeners() {
     const currentWindow: WebviewWindow = getCurrentWebviewWindow();
     domContentUnlistenFunction = await currentWindow.listen('got-dom-content', handleDomContentRequest);
     localStorageUnlistenFunction = await currentWindow.listen('get-local-storage', handleLocalStorageRequest);
     jsExecutionUnlistenFunction = await currentWindow.listen('execute-js', handleJsExecutionRequest);
     elementPositionUnlistenFunction = await currentWindow.listen('get-element-position', handleGetElementPositionRequest);
     sendTextToElementUnlistenFunction = await currentWindow.listen('send-text-to-element', handleSendTextToElementRequest);
-    
-    console.log('TAURI-PLUGIN-MCP: Event listeners for "got-dom-content", "get-local-storage", "execute-js", "get-element-position", and "send-text-to-element" are set up on the current window.');
+    captureScreenshotUnlistenFunction = await currentWindow.listen('capture-screenshot', handleCaptureScreenshotRequest);
+
+    console.log('TAURI-PLUGIN-MCP: Event listeners for "got-dom-content", "get-local-storage", "execute-js", "get-element-position", "send-text-to-element", and "capture-screenshot" are set up on the current window.');
 }
 
 export async function cleanupPluginListeners() {
@@ -48,6 +50,12 @@ export async function cleanupPluginListeners() {
         sendTextToElementUnlistenFunction();
         sendTextToElementUnlistenFunction = null;
         console.log('TAURI-PLUGIN-MCP: Event listener for "send-text-to-element" has been removed.');
+    }
+
+    if (captureScreenshotUnlistenFunction) {
+        captureScreenshotUnlistenFunction();
+        captureScreenshotUnlistenFunction = null;
+        console.log('TAURI-PLUGIN-MCP: Event listener for "capture-screenshot" has been removed.');
     }
 }
 
@@ -973,7 +981,7 @@ async function typeIntoSlateEditor(element: HTMLElement, text: string, delayMs: 
         console.log('TAURI-PLUGIN-MCP: Completed Slate editor typing');
     } catch (e) {
         console.error('TAURI-PLUGIN-MCP: Error in Slate editor typing:', e);
-        
+
         // Fallback approach
         try {
             const editableDiv = element.querySelector('[contenteditable="true"]') || element;
@@ -983,4 +991,241 @@ async function typeIntoSlateEditor(element: HTMLElement, text: string, delayMs: 
             console.error('TAURI-PLUGIN-MCP: Fallback for Slate editor failed:', innerError);
         }
     }
+}
+
+// ========== JS-Based Screenshot Capture ==========
+// This captures the webview's content using the browser's internal rendering,
+// similar to how Playwright captures screenshots via CDP.
+// This approach doesn't require Screen Recording permissions or window focus.
+
+async function handleCaptureScreenshotRequest(event: any) {
+    console.log('TAURI-PLUGIN-MCP: Received capture-screenshot request');
+
+    try {
+        const { quality = 85, maxWidth = 1920 } = event.payload || {};
+
+        // Capture the screenshot using canvas
+        const dataUrl = await capturePageAsImage(quality, maxWidth);
+
+        await emit('capture-screenshot-response', {
+            success: true,
+            data: dataUrl
+        });
+        console.log('TAURI-PLUGIN-MCP: Emitted capture-screenshot-response');
+    } catch (error) {
+        console.error('TAURI-PLUGIN-MCP: Error capturing screenshot:', error);
+        await emit('capture-screenshot-response', {
+            success: false,
+            error: error instanceof Error ? error.toString() : String(error)
+        }).catch(e =>
+            console.error('TAURI-PLUGIN-MCP: Error emitting error response', e)
+        );
+    }
+}
+
+/**
+ * Captures the current page as an image using canvas.
+ * Uses the html2canvas-like approach but with native browser APIs.
+ * Returns a JPEG data URL.
+ */
+async function capturePageAsImage(quality: number, maxWidth: number): Promise<string> {
+    // Get the full document dimensions
+    const docElement = document.documentElement;
+    const body = document.body;
+
+    const width = Math.max(
+        body.scrollWidth, docElement.scrollWidth,
+        body.offsetWidth, docElement.offsetWidth,
+        body.clientWidth, docElement.clientWidth
+    );
+    const height = Math.max(
+        body.scrollHeight, docElement.scrollHeight,
+        body.offsetHeight, docElement.offsetHeight,
+        body.clientHeight, docElement.clientHeight
+    );
+
+    // Use visible viewport dimensions for practical screenshot
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    console.log(`TAURI-PLUGIN-MCP: Capturing viewport ${viewportWidth}x${viewportHeight}`);
+
+    // Create canvas with viewport dimensions
+    const canvas = document.createElement('canvas');
+
+    // Scale down if viewport is larger than maxWidth
+    const scale = viewportWidth > maxWidth ? maxWidth / viewportWidth : 1;
+    canvas.width = Math.round(viewportWidth * scale);
+    canvas.height = Math.round(viewportHeight * scale);
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        throw new Error('Failed to get canvas 2d context');
+    }
+
+    // Scale the context
+    ctx.scale(scale, scale);
+
+    // Fill background
+    ctx.fillStyle = getComputedStyle(document.body).backgroundColor || '#ffffff';
+    ctx.fillRect(0, 0, viewportWidth, viewportHeight);
+
+    // Try to use the native browser rendering approach
+    // This uses an SVG foreignObject to render the DOM to canvas
+    try {
+        const dataUrl = await renderDomToCanvas(ctx, viewportWidth, viewportHeight);
+        if (dataUrl) {
+            return dataUrl;
+        }
+    } catch (svgError) {
+        console.warn('TAURI-PLUGIN-MCP: SVG foreignObject approach failed, trying fallback:', svgError);
+    }
+
+    // Fallback: Render a simplified snapshot manually
+    await renderSimplifiedSnapshot(ctx, viewportWidth, viewportHeight);
+
+    // Convert to JPEG
+    const qualityFraction = quality / 100;
+    return canvas.toDataURL('image/jpeg', qualityFraction);
+}
+
+/**
+ * Renders the DOM to canvas using SVG foreignObject.
+ * This is the most accurate approach but may fail on some pages due to CORS.
+ */
+async function renderDomToCanvas(ctx: CanvasRenderingContext2D, width: number, height: number): Promise<string | null> {
+    // Clone the body to avoid modifying the original
+    const clone = document.body.cloneNode(true) as HTMLElement;
+
+    // Inline all computed styles
+    await inlineStyles(clone, document.body);
+
+    // Remove script tags (they won't render anyway and can cause issues)
+    clone.querySelectorAll('script').forEach(el => el.remove());
+
+    // Serialize to XML
+    const serializer = new XMLSerializer();
+    const bodyHtml = serializer.serializeToString(clone);
+
+    // Create SVG with foreignObject
+    const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+            <foreignObject width="100%" height="100%">
+                <body xmlns="http://www.w3.org/1999/xhtml" style="margin:0;padding:0;">
+                    ${bodyHtml}
+                </body>
+            </foreignObject>
+        </svg>
+    `;
+
+    // Create image from SVG
+    const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            try {
+                ctx.drawImage(img, 0, 0);
+                URL.revokeObjectURL(url);
+                // Get the data URL from the canvas
+                const canvas = ctx.canvas;
+                resolve(canvas.toDataURL('image/jpeg', 0.85));
+            } catch (e) {
+                URL.revokeObjectURL(url);
+                reject(e);
+            }
+        };
+        img.onerror = (e) => {
+            URL.revokeObjectURL(url);
+            reject(new Error('Failed to render SVG to image'));
+        };
+        img.src = url;
+    });
+}
+
+/**
+ * Inlines computed styles from source to clone element.
+ */
+async function inlineStyles(clone: HTMLElement, source: HTMLElement): Promise<void> {
+    const sourceStyle = getComputedStyle(source);
+    const importantStyles = [
+        'background-color', 'background-image', 'color', 'font-family', 'font-size',
+        'font-weight', 'line-height', 'text-align', 'padding', 'margin', 'border',
+        'border-radius', 'display', 'flex-direction', 'justify-content', 'align-items',
+        'position', 'top', 'left', 'right', 'bottom', 'width', 'height', 'max-width',
+        'max-height', 'min-width', 'min-height', 'overflow', 'opacity', 'transform',
+        'box-shadow', 'text-shadow'
+    ];
+
+    for (const prop of importantStyles) {
+        const value = sourceStyle.getPropertyValue(prop);
+        if (value) {
+            clone.style.setProperty(prop, value);
+        }
+    }
+
+    // Process children recursively (limit depth for performance)
+    const sourceChildren = source.children;
+    const cloneChildren = clone.children;
+
+    for (let i = 0; i < Math.min(sourceChildren.length, cloneChildren.length, 500); i++) {
+        if (sourceChildren[i] instanceof HTMLElement && cloneChildren[i] instanceof HTMLElement) {
+            await inlineStyles(cloneChildren[i] as HTMLElement, sourceChildren[i] as HTMLElement);
+        }
+    }
+}
+
+/**
+ * Fallback: Renders a simplified snapshot by drawing visible elements.
+ */
+async function renderSimplifiedSnapshot(ctx: CanvasRenderingContext2D, width: number, height: number): Promise<void> {
+    // Draw visible images
+    const images = document.querySelectorAll('img');
+    for (const img of images) {
+        if (img.complete && img.naturalWidth > 0) {
+            const rect = img.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0 && rect.top < height && rect.left < width) {
+                try {
+                    ctx.drawImage(img, rect.left, rect.top, rect.width, rect.height);
+                } catch (e) {
+                    // CORS error - skip this image
+                }
+            }
+        }
+    }
+
+    // Draw visible text elements
+    const textElements = document.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, a, li, td, th, label, button');
+    ctx.fillStyle = '#000000';
+
+    for (const el of textElements) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0 && rect.top < height && rect.left < width) {
+            const style = getComputedStyle(el);
+            const fontSize = parseFloat(style.fontSize) || 14;
+            ctx.font = `${style.fontWeight} ${fontSize}px ${style.fontFamily}`;
+            ctx.fillStyle = style.color || '#000000';
+
+            const text = el.textContent?.trim();
+            if (text && text.length < 500) {
+                ctx.fillText(text.substring(0, 100), rect.left, rect.top + fontSize);
+            }
+        }
+    }
+
+    // Draw visible canvas elements
+    const canvases = document.querySelectorAll('canvas');
+    for (const cvs of canvases) {
+        const rect = cvs.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0 && rect.top < height && rect.left < width) {
+            try {
+                ctx.drawImage(cvs, rect.left, rect.top, rect.width, rect.height);
+            } catch (e) {
+                // Skip on error
+            }
+        }
+    }
+
+    console.log('TAURI-PLUGIN-MCP: Rendered simplified snapshot');
 }

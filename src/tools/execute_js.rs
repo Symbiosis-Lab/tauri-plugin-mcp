@@ -5,6 +5,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Listener, Manager, Runtime};
 
+use crate::desktop::resolve_webview;
 use crate::error::Error;
 use crate::socket_server::SocketResponse;
 
@@ -75,13 +76,15 @@ pub async fn handle_execute_js<R: Runtime>(
         .clone()
         .unwrap_or_else(|| "main".to_string());
 
-    // Verify the window exists
-    let _window = app
-        .get_webview_window(&window_label)
-        .ok_or_else(|| Error::Anyhow(format!("Window not found: {}", window_label)))?;
+    // Verify the webview exists using resolve_webview (supports multi-webview architecture)
+    let (resolved_label, _webview) = resolve_webview(app, &window_label)?;
+
+    // Update request with resolved label for emit_to
+    let mut resolved_request = request.clone();
+    resolved_request.window_label = Some(resolved_label);
 
     // Execute JavaScript and get the result
-    let result = execute_js_in_window(app.clone(), request).await;
+    let result = execute_js_in_window(app.clone(), resolved_request).await;
 
     // Handle the result
     match result {

@@ -16,6 +16,129 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, Runtime, plugin::PluginApi};
 use log::info;
 
+// ----- Multi-Webview Architecture Support -----
+
+/// Resolves a window label to a WebviewWindow, with fallback for multi-webview architectures.
+///
+/// For apps like moss that use Window + child Webviews (Tauri unstable feature):
+/// - First tries get_webview_window (for legacy single-webview-per-window apps)
+/// - Then tries get_webview (for multi-webview apps using Window + Webview children)
+/// - When requesting "main", also tries "preview" as a fallback (moss convention)
+///
+/// Returns the WebviewWindow handle for window operations.
+pub fn resolve_window<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<tauri::WebviewWindow<R>> {
+    // First try direct WebviewWindow lookup (for legacy single-webview apps)
+    if let Some(ww) = app.get_webview_window(label) {
+        eprintln!("[TAURI_MCP] Found WebviewWindow '{}'", label);
+        return Ok(ww);
+    }
+
+    // For moss-style multi-webview: if requesting "main", try "preview"
+    if label == "main" {
+        if let Some(ww) = app.get_webview_window("preview") {
+            eprintln!("[TAURI_MCP] Resolved window 'main' to WebviewWindow 'preview'");
+            return Ok(ww);
+        }
+    }
+
+    // List all available for debugging
+    let ww_list: Vec<String> = app.webview_windows().keys().cloned().collect();
+    let webview_list: Vec<String> = app.webviews().keys().cloned().collect();
+    let window_list: Vec<String> = app.windows().keys().cloned().collect();
+    eprintln!("[TAURI_MCP] Window '{}' not found.", label);
+    eprintln!("[TAURI_MCP]   WebviewWindows: {:?}", ww_list);
+    eprintln!("[TAURI_MCP]   Webviews: {:?}", webview_list);
+    eprintln!("[TAURI_MCP]   Windows: {:?}", window_list);
+
+    Err(Error::WindowNotFound(label.to_string()))
+}
+
+/// Resolves a label to a Webview for DOM/JS operations.
+/// This function returns the webview label to use for emit_to().
+///
+/// For multi-webview apps (like moss), the webview might have a different label
+/// than the window (e.g., window "main" contains webview "preview").
+pub fn resolve_webview<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<(String, tauri::Webview<R>)> {
+    // Try to get the webview directly by label
+    if let Some(wv) = app.get_webview(label) {
+        eprintln!("[TAURI_MCP] Found Webview '{}'", label);
+        return Ok((label.to_string(), wv));
+    }
+
+    // For moss-style multi-webview: if requesting "main", try "preview"
+    if label == "main" {
+        if let Some(wv) = app.get_webview("preview") {
+            eprintln!("[TAURI_MCP] Resolved webview 'main' to 'preview' (multi-webview architecture)");
+            return Ok(("preview".to_string(), wv));
+        }
+    }
+
+    // List all available for debugging
+    let webview_list: Vec<String> = app.webviews().keys().cloned().collect();
+    eprintln!("[TAURI_MCP] Webview '{}' not found. Available: {:?}", label, webview_list);
+
+    Err(Error::WindowNotFound(format!("Webview '{}' not found", label)))
+}
+
+/// Resolves a window for screenshot functionality.
+/// For screenshots, we need either a WebviewWindow or a Window to get the title.
+/// xcap finds windows by title, so we need the title to capture.
+///
+/// This function tries:
+/// 1. get_webview_window (legacy single-webview apps)
+/// 2. get_webview_window("preview") if "main" requested (moss convention)
+/// 3. get_window (multi-webview apps) - returns the Window which we can use for title
+pub fn resolve_webview_window<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<tauri::WebviewWindow<R>> {
+    // First try direct WebviewWindow lookup
+    if let Some(ww) = app.get_webview_window(label) {
+        eprintln!("[TAURI_MCP] Screenshot: Found WebviewWindow '{}'", label);
+        return Ok(ww);
+    }
+
+    // For moss-style multi-webview: if requesting "main", try "preview"
+    if label == "main" {
+        if let Some(ww) = app.get_webview_window("preview") {
+            eprintln!("[TAURI_MCP] Screenshot: Resolved 'main' to WebviewWindow 'preview'");
+            return Ok(ww);
+        }
+    }
+
+    // List available for debugging
+    let ww_list: Vec<String> = app.webview_windows().keys().cloned().collect();
+    let window_list: Vec<String> = app.windows().keys().cloned().collect();
+    eprintln!("[TAURI_MCP] Screenshot: WebviewWindow '{}' not found.", label);
+    eprintln!("[TAURI_MCP]   Available WebviewWindows: {:?}", ww_list);
+    eprintln!("[TAURI_MCP]   Available Windows: {:?}", window_list);
+
+    Err(Error::WindowNotFound(label.to_string()))
+}
+
+/// Gets the window title for screenshot matching, supporting multi-webview architecture.
+/// Returns the title that xcap should search for.
+pub fn get_screenshot_window_title<R: Runtime>(app: &AppHandle<R>, label: &str) -> Result<String> {
+    // Try to get a WebviewWindow first
+    if let Some(ww) = app.get_webview_window(label) {
+        return ww.title().map_err(|e| Error::WindowOperationFailed(e.to_string()));
+    }
+
+    // For multi-webview: try to get the Window directly
+    if let Some(w) = app.get_window(label) {
+        return w.title().map_err(|e| Error::WindowOperationFailed(e.to_string()));
+    }
+
+    // If "main" not found, try "preview" (moss convention)
+    if label == "main" {
+        if let Some(ww) = app.get_webview_window("preview") {
+            return ww.title().map_err(|e| Error::WindowOperationFailed(e.to_string()));
+        }
+        if let Some(w) = app.get_window("preview") {
+            return w.title().map_err(|e| Error::WindowOperationFailed(e.to_string()));
+        }
+    }
+
+    Err(Error::WindowNotFound(label.to_string()))
+}
+
 // ----- Screenshot Utilities -----
 
 /// Helper structure to hold window for screenshot functions
@@ -84,10 +207,20 @@ impl<R: Runtime> TauriMcp<R> {
     ) -> crate::Result<ScreenshotResponse> {
         let window_label = payload.window_label.clone();
 
-        let window = self
-            .app
-            .get_webview_window(&window_label)
-            .ok_or_else(|| Error::WindowNotFound(window_label.clone()))?;
+        // For multi-webview architectures, we need to get the window title differently
+        // First, get the window title for xcap to find the window
+        let window_title = get_screenshot_window_title(&self.app, &window_label)?;
+        eprintln!("[TAURI_MCP] Screenshot: Got window title '{}' for label '{}'", window_title, window_label);
+
+        // Try to get a WebviewWindow for the context (may fail for multi-webview)
+        // The context is used for additional operations but xcap finds by app_name anyway
+        let window_context = if let Some(ww) = self.app.get_webview_window(&window_label) {
+            Some(ScreenshotContext { window: ww })
+        } else if let Some(ww) = self.app.get_webview_window("preview") {
+            Some(ScreenshotContext { window: ww })
+        } else {
+            None
+        };
 
         // Create shared parameters struct from the request
         let params = ScreenshotParams {
@@ -98,15 +231,17 @@ impl<R: Runtime> TauriMcp<R> {
             application_name: Some(self.application_name.clone()),
         };
 
-        // Create a context with the window for platform implementation
-        let window_context = ScreenshotContext {
-            window: window.clone(),
-        };
-
         info!("[TAURI_MCP] Taking screenshot with default parameters");
 
         // Use platform-specific implementation to capture the window
-        crate::platform::current::take_screenshot(params, window_context).await
+        if let Some(ctx) = window_context {
+            crate::platform::current::take_screenshot(params, ctx).await
+        } else {
+            // For multi-webview without a WebviewWindow, we need to use app_name search only
+            // xcap will find the window by application_name
+            eprintln!("[TAURI_MCP] Screenshot: No WebviewWindow available, using app_name search");
+            crate::platform::current::take_screenshot_by_app_name(params, self.application_name.clone()).await
+        }
     }
 
     // Add async method to perform window operations
@@ -116,10 +251,8 @@ impl<R: Runtime> TauriMcp<R> {
     ) -> Result<WindowManagerResponse> {
         let window_label = params.window_label.unwrap_or_else(|| "main".to_string());
 
-        // Get the window by label
-        let window = self.app.get_webview_window(&window_label).ok_or_else(|| {
-            Error::WindowOperationFailed(format!("Window not found: {}", window_label))
-        })?;
+        // Use resolve_window to support both single and multi-webview architectures
+        let window = resolve_window(&self.app, &window_label)?;
 
         // Execute the requested operation
         match params.operation.as_str() {

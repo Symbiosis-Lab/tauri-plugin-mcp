@@ -89,3 +89,16 @@ pub async fn take_screenshot<R: Runtime>(
     }
   }).await
 }
+
+/// Take a screenshot by searching for the window by application name only
+/// Used for multi-webview architectures where we don't have a WebviewWindow handle
+pub async fn take_screenshot_by_app_name(
+    params: ScreenshotParams,
+    _application_name: String,
+) -> Result<ScreenshotResponse> {
+    // For Windows, we need a window title to find the window
+    // This is a stub - actual implementation would need to search by process name
+    Err(Error::WindowOperationFailed(
+        "take_screenshot_by_app_name not yet implemented for Windows".to_string()
+    ))
+}

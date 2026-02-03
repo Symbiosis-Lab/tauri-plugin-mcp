@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize, Serializer}; // Add Deserialize for parsing 
 use serde_json::Value;
 use std::fmt;
 use std::sync::mpsc;
-use tauri::{AppHandle, Error as TauriError, Listener, Manager, Runtime, WebviewWindow};
+use std::time::Duration;
+use tauri::{AppHandle, Error as TauriError, Emitter, Listener, Manager, Runtime, WebviewWindow};
+
+use crate::desktop::resolve_webview;
 
 // Custom error enum for the get_dom_text command
 #[derive(Debug)] // Add Serialize for the enum itself if it needs to be directly serialized
@@ -76,11 +79,11 @@ pub async fn handle_get_dom<R: Runtime>(
         )));
     };
 
-    // Get the window by label using the Manager trait
-    let window = app.get_webview_window(&window_label).ok_or_else(|| {
-        crate::error::Error::Anyhow(format!("Window not found: {}", window_label))
-    })?;
-    let result = get_dom_text(app.clone(), window).await;
+    // Use resolve_webview to support both single and multi-webview architectures
+    let (resolved_label, _webview) = resolve_webview(app, &window_label)?;
+
+    // Get DOM content using the resolved webview label
+    let result = get_dom_text_for_label(app.clone(), &resolved_label).await;
     match result {
         Ok(dom_text) => {
             let data = serde_json::to_value(dom_text).map_err(|e| {
@@ -99,13 +102,15 @@ pub async fn handle_get_dom<R: Runtime>(
         }),
     }
 }
-use tauri::Emitter;
-#[tauri::command]
-pub async fn get_dom_text<R: Runtime>(
+
+/// Get DOM text from a specific webview by label (supports multi-webview architecture)
+pub async fn get_dom_text_for_label<R: Runtime>(
     app: AppHandle<R>,
-    _window: WebviewWindow<R>,
+    webview_label: &str,
 ) -> Result<String, GetDomError> {
-    app.emit_to("main", "got-dom-content", "test").unwrap();
+    eprintln!("[TAURI_MCP] Getting DOM from webview: {}", webview_label);
+    app.emit_to(webview_label, "got-dom-content", "test")
+        .map_err(|e| GetDomError::WebviewOperation(format!("Failed to emit to {}: {}", webview_label, e)))?;
 
     let (tx, rx) = mpsc::channel();
 
@@ -124,11 +129,18 @@ pub async fn get_dom_text<R: Runtime>(
             }
         }
         Err(e) => {
-            // This error (e: tauri::Error) could be from the eval call itself
-            // or an error from the JavaScript execution (Promise rejection).
             Err(GetDomError::from(e))
         }
     }
+}
+
+#[tauri::command]
+pub async fn get_dom_text<R: Runtime>(
+    app: AppHandle<R>,
+    _window: WebviewWindow<R>,
+) -> Result<String, GetDomError> {
+    // Legacy function - calls the new implementation with "main" label
+    get_dom_text_for_label(app, "main").await
 }
 
 // Second fix: add From implementation for RecvTimeoutError
@@ -321,5 +333,121 @@ pub async fn handle_send_text_to_element<R: Runtime>(
             data: None,
             error: Some(format!("Timeout waiting for text input completion: {}", e)),
         }),
+    }
+}
+
+// ========== JS-Based Screenshot Capture ==========
+// This captures the webview's content using JavaScript (similar to Playwright).
+// It doesn't require Screen Recording permissions or window focus.
+
+/// Payload structure for JS-based screenshot capture
+#[derive(Debug, Deserialize)]
+pub struct CaptureScreenshotPayload {
+    window_label: Option<String>,
+    quality: Option<u8>,
+    max_width: Option<u32>,
+}
+
+/// Handler for JS-based screenshot capture
+pub async fn handle_capture_screenshot<R: Runtime>(
+    app: &AppHandle<R>,
+    payload: Value,
+) -> Result<crate::socket_server::SocketResponse, crate::error::Error> {
+    // Parse payload
+    let parsed: CaptureScreenshotPayload = if payload.is_object() {
+        serde_json::from_value(payload.clone()).unwrap_or(CaptureScreenshotPayload {
+            window_label: None,
+            quality: None,
+            max_width: None,
+        })
+    } else {
+        CaptureScreenshotPayload {
+            window_label: payload.as_str().map(|s| s.to_string()),
+            quality: None,
+            max_width: None,
+        }
+    };
+
+    let window_label = parsed.window_label.unwrap_or_else(|| "main".to_string());
+    let quality = parsed.quality.unwrap_or(85);
+    let max_width = parsed.max_width.unwrap_or(1920);
+
+    eprintln!("[TAURI_MCP] JS-based screenshot capture for window: {}", window_label);
+
+    // Resolve the webview label for multi-webview architectures
+    let (resolved_label, _webview) = resolve_webview(app, &window_label)?;
+
+    eprintln!("[TAURI_MCP] Resolved to webview: {}", resolved_label);
+
+    // Create channel to receive the result
+    let (tx, rx) = mpsc::channel();
+
+    // Set up listener for the response
+    app.once("capture-screenshot-response", move |event| {
+        let payload = event.payload().to_string();
+        let _ = tx.send(payload);
+    });
+
+    // Prepare the payload for the JS handler
+    let js_payload = serde_json::json!({
+        "quality": quality,
+        "maxWidth": max_width
+    });
+
+    // Emit the event to the webview
+    app.emit_to(&resolved_label, "capture-screenshot", js_payload)
+        .map_err(|e| {
+            crate::error::Error::Anyhow(format!("Failed to emit capture-screenshot event: {}", e))
+        })?;
+
+    // Wait for the response with a timeout (longer timeout for rendering)
+    match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(result_string) => {
+            // Parse the result
+            let result: Value = serde_json::from_str(&result_string).map_err(|e| {
+                crate::error::Error::Anyhow(format!("Failed to parse screenshot result: {}", e))
+            })?;
+
+            let success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+
+            if success {
+                // Extract the data URL
+                let data = result.get("data").cloned().unwrap_or(Value::Null);
+
+                eprintln!("[TAURI_MCP] JS-based screenshot capture successful");
+
+                // Return in the same format as the native screenshot
+                Ok(crate::socket_server::SocketResponse {
+                    success: true,
+                    data: Some(serde_json::json!({
+                        "data": data,
+                        "success": true,
+                        "error": null
+                    })),
+                    error: None,
+                })
+            } else {
+                let error = result
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown error during JS screenshot capture");
+
+                eprintln!("[TAURI_MCP] JS-based screenshot capture failed: {}", error);
+
+                Ok(crate::socket_server::SocketResponse {
+                    success: false,
+                    data: None,
+                    error: Some(error.to_string()),
+                })
+            }
+        }
+        Err(e) => {
+            eprintln!("[TAURI_MCP] Timeout waiting for JS screenshot: {}", e);
+            Ok(crate::socket_server::SocketResponse {
+                success: false,
+                data: None,
+                error: Some(format!("Timeout waiting for screenshot capture: {}", e)),
+            })
+        }
     }
 }
