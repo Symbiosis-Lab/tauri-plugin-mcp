@@ -111,16 +111,21 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 
 /// Initializes the plugin with the given configuration.
 pub fn init_with_config<R: Runtime>(config: PluginConfig) -> TauriPlugin<R> {
+    // Use eprintln! for guaranteed visibility (bypasses log filtering)
+    eprintln!("[TAURI_MCP] init_with_config called");
+
     // Log socket configuration
     match &config.socket_type {
         SocketType::Ipc { path } => {
             if let Some(path) = path {
+                eprintln!("[TAURI_MCP] Socket server will use custom IPC path: {}", path.display());
                 info!(
                     "[TAURI_MCP] Socket server will use custom IPC path: {}",
                     path.display()
                 );
             } else {
                 let default_path = std::env::temp_dir().join("tauri-mcp.sock");
+                eprintln!("[TAURI_MCP] Socket server will use default IPC path: {}", default_path.display());
                 info!(
                     "[TAURI_MCP] Socket server will use default IPC path: {}",
                     default_path.display()
@@ -128,6 +133,7 @@ pub fn init_with_config<R: Runtime>(config: PluginConfig) -> TauriPlugin<R> {
             }
         }
         SocketType::Tcp { host, port } => {
+            eprintln!("[TAURI_MCP] Socket server will use TCP: {}:{}", host, port);
             info!(
                 "[TAURI_MCP] Socket server will use TCP: {}:{}",
                 host, port
@@ -136,8 +142,10 @@ pub fn init_with_config<R: Runtime>(config: PluginConfig) -> TauriPlugin<R> {
     }
 
     if config.start_socket_server {
+        eprintln!("[TAURI_MCP] Socket server will start automatically");
         info!("[TAURI_MCP] Socket server will start automatically");
     } else {
+        eprintln!("[TAURI_MCP] Socket server auto-start is disabled");
         info!("[TAURI_MCP] Socket server auto-start is disabled");
     }
 
@@ -146,12 +154,18 @@ pub fn init_with_config<R: Runtime>(config: PluginConfig) -> TauriPlugin<R> {
         // Server Commands
         ])
         .setup(move |app, api| {
+            eprintln!("[TAURI_MCP] Plugin setup started");
             info!("[TAURI_MCP] Setting up plugin");
             #[cfg(mobile)]
             panic!("Mobile is not supported");
             #[cfg(desktop)]
-            let tauri_mcp = desktop::init(app, api, &config)?;
-            app.manage(tauri_mcp);
+            {
+                eprintln!("[TAURI_MCP] Initializing desktop MCP...");
+                let tauri_mcp = desktop::init(app, api, &config)?;
+                eprintln!("[TAURI_MCP] Desktop MCP initialized, managing state...");
+                app.manage(tauri_mcp);
+                eprintln!("[TAURI_MCP] Plugin setup complete!");
+            }
             info!("[TAURI_MCP] Plugin setup complete");
             Ok(())
         })

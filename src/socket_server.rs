@@ -153,10 +153,12 @@ impl<R: Runtime> SocketServer<R> {
     }
 
     pub fn start(&mut self) -> crate::Result<()> {
+        eprintln!("[TAURI_MCP] SocketServer::start() called");
         info!("[TAURI_MCP] Starting socket server...");
 
         let listener = match &self.socket_type {
             SocketType::Ipc { path } => {
+                eprintln!("[TAURI_MCP] Creating IPC listener...");
                 // Create a name for our socket based on the platform
                 let socket_name = self.get_socket_name(path)?;
 
@@ -164,20 +166,34 @@ impl<R: Runtime> SocketServer<R> {
                 let opts = ListenerOptions::new().name(socket_name);
                 let ipc_listener = opts.create_sync()
                     .map_err(|e| {
+                        eprintln!("[TAURI_MCP] ERROR creating IPC socket: {}", e);
                         info!("[TAURI_MCP] Error creating IPC socket listener: {}", e);
                         if e.kind() == std::io::ErrorKind::AddrInUse {
-                            Error::Io(format!("Socket address already in use. If the socket file exists, it may be a stale socket. Try removing it manually."))
+                            Error::Io(format!("Socket address already in use. Try: rm -f {}",
+                                path.as_ref().map(|p| p.display().to_string()).unwrap_or_default()))
                         } else {
                             Error::Io(format!("Failed to create local socket: {}", e))
                         }
                     })?;
+
+                // Verify socket file was created (Unix only)
+                if let Some(p) = path {
+                    if p.exists() {
+                        eprintln!("[TAURI_MCP] Socket file created successfully: {}", p.display());
+                    } else {
+                        eprintln!("[TAURI_MCP] WARNING: Socket file not found after creation: {}", p.display());
+                    }
+                }
+
                 UnifiedListener::Ipc(ipc_listener)
             }
             SocketType::Tcp { host, port } => {
+                eprintln!("[TAURI_MCP] Creating TCP listener at {}:{}...", host, port);
                 // Create TCP listener
                 let addr = format!("{}:{}", host, port);
                 let tcp_listener = TcpListener::bind(&addr)
                     .map_err(|e| {
+                        eprintln!("[TAURI_MCP] ERROR creating TCP socket: {}", e);
                         info!("[TAURI_MCP] Error creating TCP socket listener: {}", e);
                         Error::Io(format!("Failed to bind to {}: {}", addr, e))
                     })?;
@@ -189,6 +205,7 @@ impl<R: Runtime> SocketServer<R> {
         self.listener = Some(listener.clone());
 
         *self.running.lock().unwrap() = true;
+        eprintln!("[TAURI_MCP] Set running flag to true");
         info!("[TAURI_MCP] Set running flag to true");
 
         let app = self.app.clone();
@@ -196,13 +213,16 @@ impl<R: Runtime> SocketServer<R> {
         let socket_type = self.socket_type.clone();
 
         // Spawn a thread to handle socket connections
+        eprintln!("[TAURI_MCP] Spawning listener thread");
         info!("[TAURI_MCP] Spawning listener thread");
         thread::spawn(move || {
             match &socket_type {
                 SocketType::Ipc { .. } => {
+                    eprintln!("[TAURI_MCP] Listener thread started for IPC socket");
                     info!("[TAURI_MCP] Listener thread started for IPC socket");
                 }
                 SocketType::Tcp { host, port } => {
+                    eprintln!("[TAURI_MCP] Listener thread started for TCP socket at {}:{}", host, port);
                     info!("[TAURI_MCP] Listener thread started for TCP socket at {}:{}", host, port);
                 }
             }
