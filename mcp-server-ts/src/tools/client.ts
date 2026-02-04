@@ -1,6 +1,7 @@
 import * as net from 'net';
 import * as os from 'os';
 import * as fs from 'fs';
+import { logger } from '../logger.js';
 
 // Constants
 const SOCKET_FILENAME = 'tauri-mcp.sock';
@@ -55,19 +56,19 @@ export class TauriSocketClient {
         // On Windows, the socket is created as a named pipe in a specific location
         if (os.platform() === 'win32') {
           connectionPath = `\\\\.\\pipe\\tmp\\${SOCKET_FILENAME}`;
-          console.error(`Using Windows-specific pipe path: ${connectionPath}`);
+          logger.debug(`Using Windows-specific pipe path: ${connectionPath}`);
         }
         
         connectionOptions = { path: connectionPath };
         connectionInfo = `IPC ${connectionPath}`;
       }
 
-      console.error(`Connecting to ${connectionInfo} (attempt ${this.reconnectAttempts + 1})`);
+      logger.debug(`Connecting to ${connectionInfo} (attempt ${this.reconnectAttempts + 1})`);
       
       this.client = net.createConnection(connectionOptions, () => {
         this.isConnected = true;
         this.reconnectAttempts = 0;
-        console.error(`Connected to Tauri socket server at ${connectionInfo}`);
+        logger.info(`Connected to Tauri socket server at ${connectionInfo}`);
         
         // Setup data handler
         this.client!.on('data', (data) => {
@@ -78,22 +79,22 @@ export class TauriSocketClient {
       });
 
       this.client!.on('error', (err) => {
-        console.error('Socket connection error:', err);
+        logger.error('Socket connection error:', err);
         this.isConnected = false;
         reject(err);
       });
       
       this.client!.on('close', () => {
         this.isConnected = false;
-        console.error('Socket connection closed');
-        
+        logger.warn('Socket connection closed');
+
         // Try to reconnect if not too many attempts
         if (this.reconnectAttempts < 3) {
           this.reconnectAttempts++;
-          console.error(`Socket closed. Attempting to reconnect in 2 seconds...`);
+          logger.warn(`Socket closed. Attempting to reconnect in 2 seconds...`);
           setTimeout(() => {
             this.connect().catch(e => {
-              console.error('Reconnection failed:', e);
+              logger.error('Reconnection failed:', e);
             });
           }, 2000);
         }
@@ -105,7 +106,7 @@ export class TauriSocketClient {
     // Accumulate data in the buffer
     this.buffer += data.toString();
     
-    console.error(`Received ${data.length} bytes, buffer size: ${this.buffer.length}`);
+    logger.debug(`Received ${data.length} bytes, buffer size: ${this.buffer.length}`);
     
     // Try to find complete JSON responses that end with newline
     let newlineIndex;
@@ -113,7 +114,7 @@ export class TauriSocketClient {
       const jsonStr = this.buffer.substring(0, newlineIndex);
       this.buffer = this.buffer.substring(newlineIndex + 1);
       
-      console.error(`Processing JSON response of ${jsonStr.length} bytes`);
+      logger.debug(`Processing JSON response of ${jsonStr.length} bytes`);
       
       try {
         const response = JSON.parse(jsonStr);
@@ -135,31 +136,31 @@ export class TauriSocketClient {
             if (!response.success) {
               // If the server indicates failure, reject the promise with the error message
               const errorMsg = response.error || 'Command failed without specific error';
-              console.error(`Command failed with error: ${errorMsg}`);
+              logger.error(`Command failed with error: ${errorMsg}`);
               callback.reject(new Error(errorMsg));
             } else {
               callback.resolve(response.data);
             }
           }
         } else {
-          console.error('Received response but no callbacks were waiting for it');
+          logger.debug('Received response but no callbacks were waiting for it');
         }
       } catch (err) {
-        console.error('Error parsing response:', err);
-        
+        logger.error('Error parsing response:', err);
+
         // Log first and last 100 characters of the JSON string for debugging
         if (jsonStr.length > 200) {
-          console.error(`JSON starts with: ${jsonStr.substring(0, 100)}...`);
-          console.error(`JSON ends with: ...${jsonStr.substring(jsonStr.length - 100)}`);
+          logger.debug(`JSON starts with: ${jsonStr.substring(0, 100)}...`);
+          logger.debug(`JSON ends with: ...${jsonStr.substring(jsonStr.length - 100)}`);
         } else {
-          console.error(`Full JSON: ${jsonStr}`);
+          logger.debug(`Full JSON: ${jsonStr}`);
         }
-        
+
         // If parsing failed, this could be a partial message
         // so we'll just add it back to the buffer and wait for more data
         // But if it's too large (>10MB), something is wrong, so clear it
         if (this.buffer.length > 10_000_000) {
-          console.error('Buffer overflow, clearing buffer');
+          logger.error('Buffer overflow, clearing buffer');
           this.buffer = '';
           
           // Reject any pending callbacks
@@ -192,7 +193,7 @@ export class TauriSocketClient {
       if (typeof payload === 'string') {
         // If payload is a string, send it as a special value that the server will recognize
         finalPayload = { window_label: payload };
-        console.error(`Sending string payload as window_label: ${payload}`);
+        logger.debug(`Sending string payload as window_label: ${payload}`);
       } else {
         // If payload is an object, use it as is
         finalPayload = payload;
@@ -208,12 +209,12 @@ export class TauriSocketClient {
       this.responseCallbacks.set(requestId, { resolve, reject });
 
       // Log the request
-      console.error(`Sending request: ${command} with payload: ${JSON.stringify(finalPayload)}`);
+      logger.debug(`Sending request: ${command} with payload: ${JSON.stringify(finalPayload)}`);
       
       // Send the request
       this.client!.write(request, (err) => {
         if (err) {
-          console.error(`Error writing to socket: ${err.message}`);
+          logger.error(`Error writing to socket: ${err.message}`);
           this.responseCallbacks.delete(requestId);
           reject(new Error(`Failed to send request: ${err.message}`));
         }
@@ -239,7 +240,7 @@ function createSocketClient(): TauriSocketClient {
     const host = process.env.TAURI_MCP_TCP_HOST || '127.0.0.1';
     const port = parseInt(process.env.TAURI_MCP_TCP_PORT || '9999', 10);
     
-    console.error(`Creating TCP socket client: ${host}:${port}`);
+    logger.debug(`Creating TCP socket client: ${host}:${port}`);
     return new TauriSocketClient({
       type: 'tcp',
       host,
@@ -248,7 +249,7 @@ function createSocketClient(): TauriSocketClient {
   } else {
     // Default to IPC
     const path = process.env.TAURI_MCP_IPC_PATH;
-    console.error(`Creating IPC socket client: ${path || 'default path'}`);
+    logger.debug(`Creating IPC socket client: ${path || 'default path'}`);
     return new TauriSocketClient({
       type: 'ipc',
       path

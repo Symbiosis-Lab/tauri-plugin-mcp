@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { logger } from '../logger.js';
 import { socketClient } from "./client.js";
 import { createErrorResponse, createSuccessResponse, formatResultAsText, logCommandParams } from "./response-helpers.js";
 
@@ -38,11 +39,11 @@ export function registerExecuteJsTool(server: McpServer) {
           timeout_ms
         });
         
-        console.error(`Got JS execution result type: ${typeof result}`);
+        logger.debug(`Got JS execution result type: ${typeof result}`);
         
         return createSuccessResponse(formatResultAsText(result));
       } catch (error) {
-        console.error('JS execution error:', error);
+        logger.error('JS execution error:', error);
         return createErrorResponse(`Failed to execute JavaScript: ${(error as Error).message}`);
       }
     },

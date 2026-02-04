@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { logger } from '../logger.js';
 import { socketClient } from "./client.js";
 
 export function registerMouseMovementTool(server: McpServer) {
@@ -35,7 +36,7 @@ export function registerMouseMovementTool(server: McpServer) {
           };
         }
         
-        console.error(`Simulating mouse movement with params: ${JSON.stringify({
+        logger.debug(`Simulating mouse movement with params: ${JSON.stringify({
           x,
           y,
           relative,
@@ -64,7 +65,7 @@ export function registerMouseMovementTool(server: McpServer) {
           ],
         };
       } catch (error) {
-        console.error('Mouse movement simulation error:', error);
+        logger.error('Mouse movement simulation error:', error);
         return {
           isError: true,
           content: [

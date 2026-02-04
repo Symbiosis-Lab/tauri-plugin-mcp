@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { logger } from '../logger.js';
 import { socketClient } from "./client.js";
 
 export function registerManageLocalStorageTool(server: McpServer) {
@@ -63,7 +64,7 @@ export function registerManageLocalStorageTool(server: McpServer) {
         // Use default window label if not provided
         const effectiveWindowLabel = window_label || 'main';
         
-        console.error(`Managing localStorage with params: ${JSON.stringify({
+        logger.debug(`Managing localStorage with params: ${JSON.stringify({
           action,
           key,
           value: value?.substring(0, 50) + (value && value.length > 50 ? '...' : ''),
@@ -77,7 +78,7 @@ export function registerManageLocalStorageTool(server: McpServer) {
           window_label: effectiveWindowLabel
         });
         
-        console.error(`Got localStorage result type: ${typeof result}`);
+        logger.debug(`Got localStorage result type: ${typeof result}`);
         
         // Format the result as a string based on the type
         let resultText;
@@ -100,7 +101,7 @@ export function registerManageLocalStorageTool(server: McpServer) {
           ],
         };
       } catch (error) {
-        console.error('localStorage management error:', error);
+        logger.error('localStorage management error:', error);
         return {
           isError: true,
           content: [

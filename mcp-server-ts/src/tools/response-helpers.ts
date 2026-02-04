@@ -1,6 +1,7 @@
 /**
  * Common response helper functions for MCP tool implementations
  */
+import { logger } from '../logger.js';
 
 /**
  * Creates a standardized error response
@@ -108,5 +109,5 @@ export function logCommandParams(commandName: string, params: Record<string, any
     };
   }
   
-  console.error(`Executing ${commandName} with params: ${JSON.stringify(params)}`);
+  logger.debug(`Executing ${commandName} with params: ${JSON.stringify(params)}`);
 } 

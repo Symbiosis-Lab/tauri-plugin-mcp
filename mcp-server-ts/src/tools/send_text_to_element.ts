@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { logger } from '../logger.js';
 import { socketClient } from "./client.js";
 
 export function registerSendTextToElementTool(server: McpServer) {
@@ -22,7 +23,7 @@ export function registerSendTextToElementTool(server: McpServer) {
     },
     async ({ selector_type, selector_value, text, window_label, delay_ms }) => {
       try {
-        console.error(`Sending text to element with params: ${JSON.stringify({
+        logger.debug(`Sending text to element with params: ${JSON.stringify({
           selector_type,
           selector_value,
           text,
@@ -41,7 +42,7 @@ export function registerSendTextToElementTool(server: McpServer) {
         
         const result = await socketClient.sendCommand('send_text_to_element', payload);
         
-        console.error(`Got result: ${JSON.stringify(result)}`);
+        logger.debug(`Got result: ${JSON.stringify(result)}`);
         
         // Process the result
         if (!result || typeof result !== 'object') {
@@ -131,7 +132,7 @@ export function registerSendTextToElementTool(server: McpServer) {
           ],
         };
       } catch (error) {
-        console.error('Error sending text to element:', error);
+        logger.error('Error sending text to element:', error);
         return {
           isError: true,
           content: [

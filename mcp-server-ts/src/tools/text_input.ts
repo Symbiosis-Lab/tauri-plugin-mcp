@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { logger } from '../logger.js';
 import { socketClient } from "./client.js";
 
 export function registerTextInputTool(server: McpServer) {
@@ -33,7 +34,7 @@ export function registerTextInputTool(server: McpServer) {
           };
         }
         
-        console.error(`Simulating text input with params: ${JSON.stringify({
+        logger.debug(`Simulating text input with params: ${JSON.stringify({
           text: text.length > 50 ? `${text.substring(0, 50)}...` : text,
           delay_ms,
           initial_delay_ms
@@ -54,7 +55,7 @@ export function registerTextInputTool(server: McpServer) {
           ],
         };
       } catch (error) {
-        console.error('Text input simulation error:', error);
+        logger.error('Text input simulation error:', error);
         return {
           isError: true,
           content: [

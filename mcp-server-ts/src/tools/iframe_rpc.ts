@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { logger } from '../logger.js';
 import { socketClient } from "./client.js";
 import { createErrorResponse, createSuccessResponse, formatResultAsText, logCommandParams } from "./response-helpers.js";
 
@@ -40,11 +41,11 @@ export function registerIframeRpcTool(server: McpServer) {
           timeout_ms
         });
 
-        console.error(`Got iframe RPC result type: ${typeof result}`);
+        logger.debug(`Got iframe RPC result type: ${typeof result}`);
 
         return createSuccessResponse(formatResultAsText(result));
       } catch (error) {
-        console.error('Iframe RPC error:', error);
+        logger.error('Iframe RPC error:', error);
         return createErrorResponse(`Failed to execute iframe RPC: ${(error as Error).message}`);
       }
     },

@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { logger } from '../logger.js';
 import { socketClient } from "./client.js";
 import { createErrorResponse, createImageResponse, extractBase64Data, logCommandParams } from "./response-helpers.js";
 
@@ -30,19 +31,19 @@ export function registerTakeScreenshotTool(server: McpServer) {
         
         const result = await socketClient.sendCommand('take_screenshot', params);
         
-        console.error(`Got screenshot result type: ${typeof result}`);
+        logger.debug(`Got screenshot result type: ${typeof result}`);
         
         // Use our shared utility to extract base64 data
         const base64Data = extractBase64Data(result);
         
         if (!base64Data) {
-          console.error('Failed to extract base64 data from response:', JSON.stringify(result));
+          logger.error('Failed to extract base64 data from response:', JSON.stringify(result));
           return createErrorResponse(`Failed to extract image data from response: ${JSON.stringify(result).substring(0, 100)}...`);
         }
         
         return createImageResponse(base64Data, 'image/jpeg');
       } catch (error) {
-        console.error('Screenshot error:', error);
+        logger.error('Screenshot error:', error);
         return createErrorResponse(`Failed to take screenshot: ${(error as Error).message}`);
       }
     },

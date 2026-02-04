@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { logger } from '../logger.js';
 import { socketClient } from "./client.js";
 
 export function registerGetDomTool(server: McpServer) {
@@ -18,14 +19,14 @@ export function registerGetDomTool(server: McpServer) {
     },
     async ({ window_label }) => {
       try {
-        console.error(`Getting DOM with params: ${JSON.stringify({
+        logger.debug(`Getting DOM with params: ${JSON.stringify({
           window_label
         })}`);
         
         // The server expects just a string, not an object
         const result = await socketClient.sendCommand('get_dom', window_label);
         
-        console.error(`Got DOM result type: ${typeof result}, length: ${
+        logger.debug(`Got DOM result type: ${typeof result}, length: ${
           typeof result === 'string' ? result.length : 'unknown'
         }`);
         
@@ -52,7 +53,7 @@ export function registerGetDomTool(server: McpServer) {
           ],
         };
       } catch (error) {
-        console.error('DOM retrieval error:', error);
+        logger.error('DOM retrieval error:', error);
         return {
           isError: true,
           content: [

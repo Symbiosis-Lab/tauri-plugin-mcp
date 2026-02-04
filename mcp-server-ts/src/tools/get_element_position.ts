@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { logger } from '../logger.js';
 import { socketClient } from "./client.js";
 import { createErrorResponse, createSuccessResponse, logCommandParams } from "./response-helpers.js";
 
@@ -40,7 +41,7 @@ export function registerGetElementPositionTool(server: McpServer) {
         
         const result = await socketClient.sendCommand('get_element_position', payload);
         
-        console.error(`Got result: ${JSON.stringify(result)}`);
+        logger.debug(`Got result: ${JSON.stringify(result)}`);
         
         // Handle invalid response
         if (!result || typeof result !== 'object') {
@@ -97,7 +98,7 @@ export function registerGetElementPositionTool(server: McpServer) {
         // Fallback error case
         return createErrorResponse(`Element found, but response format unexpected. Response data: ${JSON.stringify(result)}`);
       } catch (error) {
-        console.error('Element finding error:', error);
+        logger.error('Element finding error:', error);
         return createErrorResponse(`Failed to find element: ${(error as Error).message}`);
       }
     },

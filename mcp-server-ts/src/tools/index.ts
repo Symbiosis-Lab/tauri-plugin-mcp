@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { logger } from '../logger.js';
 import { registerTakeScreenshotTool } from "./take_screenshot.js";
 import { registerCaptureScreenshotTool } from "./capture_screenshot.js";
 import { registerExecuteJsTool } from "./execute_js.js";
@@ -34,9 +35,9 @@ export function registerAllTools(server: McpServer) {
 export async function initializeSocket(): Promise<void> {
   try {
     await socketClient.connect();
-    console.error("Socket connection initialized successfully");
+    logger.info("Socket connection initialized successfully");
   } catch (error) {
-    console.error("Failed to initialize socket connection:", error);
+    logger.error("Failed to initialize socket connection:", error);
     // Don't rethrow - allow operation to continue without socket
   }
 } 

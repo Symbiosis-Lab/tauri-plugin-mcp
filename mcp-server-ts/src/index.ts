@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerAllTools, initializeSocket } from "./tools/index.js";
+import { logger } from './logger.js';
 
 // Create server instance
 // Note: capabilities are inferred from registered tools/resources in MCP SDK 1.25+
@@ -20,14 +21,14 @@ async function main() {
     // Connect the server to stdio transport
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("Tauri MCP Server running on stdio");
+    logger.info("Tauri MCP Server running on stdio");
   } catch (error) {
-    console.error("Fatal error in main():", error);
+    logger.error("Fatal error in main():", error);
     process.exit(1);
   }
 }
 
 main().catch((error) => {
-  console.error("Fatal error in main():", error);
+  logger.error("Fatal error in main():", error);
   process.exit(1);
 });

@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { logger } from '../logger.js';
 import { socketClient } from "./client.js";
 
 export function registerManageWindowTool(server: McpServer) {
@@ -23,7 +24,7 @@ export function registerManageWindowTool(server: McpServer) {
     },
     async ({ operation, window_label, x, y, width, height }) => {
       try {
-        console.error(`Managing window with params: ${JSON.stringify({
+        logger.debug(`Managing window with params: ${JSON.stringify({
           operation,
           window_label,
           x,
@@ -50,7 +51,7 @@ export function registerManageWindowTool(server: McpServer) {
           ],
         };
       } catch (error) {
-        console.error('Window management error:', error);
+        logger.error('Window management error:', error);
         return {
           isError: true,
           content: [
