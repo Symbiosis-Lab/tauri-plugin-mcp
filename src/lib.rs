@@ -150,6 +150,7 @@ pub fn init_with_config<R: Runtime>(config: PluginConfig) -> TauriPlugin<R> {
     }
 
     Builder::new("tauri-mcp")
+        .js_init_script(include_str!("scripts/init.iife.js").to_string())
         .invoke_handler(tauri::generate_handler![
         // Server Commands
         ])
