@@ -172,6 +172,9 @@ pub async fn handle_get_element_position<R: Runtime>(
         crate::error::Error::Anyhow(format!("Invalid payload for get_element_position: {}", e))
     })?;
 
+    // Resolve webview label (supports multi-webview architecture, e.g. "main" -> "preview")
+    let (resolved_label, _webview) = resolve_webview(app, &payload.window_label)?;
+
     // Create a channel to receive the result
     let (tx, rx) = mpsc::channel();
 
@@ -186,15 +189,15 @@ pub async fn handle_get_element_position<R: Runtime>(
 
     // Prepare the request payload with selector information
     let js_payload = serde_json::json!({
-        "windowLabel": payload.window_label,
+        "windowLabel": resolved_label,
         "selectorType": payload.selector_type,
         "selectorValue": payload.selector_value,
         "shouldClick": payload.should_click,
         "rawCoordinates": payload.raw_coordinates
     });
 
-    // Emit the event to the webview
-    app.emit_to(&payload.window_label, "get-element-position", js_payload)
+    // Emit the event to the resolved webview
+    app.emit_to(&resolved_label, "get-element-position", js_payload)
         .map_err(|e| {
             crate::error::Error::Anyhow(format!("Failed to emit get-element-position event: {}", e))
         })?;
@@ -268,6 +271,8 @@ pub async fn handle_send_text_to_element<R: Runtime>(
         crate::error::Error::Anyhow(format!("Invalid payload for send_text_to_element: {}", e))
     })?;
 
+    // Resolve webview label (supports multi-webview architecture, e.g. "main" -> "preview")
+    let (resolved_label, _webview) = resolve_webview(app, &payload.window_label)?;
 
     // Create a channel to receive the result
     let (tx, rx) = mpsc::channel();
@@ -289,8 +294,8 @@ pub async fn handle_send_text_to_element<R: Runtime>(
         "delayMs": payload.delay_ms
     });
 
-    // Emit the event to the webview
-    app.emit_to(&payload.window_label, "send-text-to-element", js_payload)
+    // Emit the event to the resolved webview
+    app.emit_to(&resolved_label, "send-text-to-element", js_payload)
         .map_err(|e| {
             crate::error::Error::Anyhow(format!("Failed to emit send-text-to-element event: {}", e))
         })?;
