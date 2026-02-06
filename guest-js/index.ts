@@ -8,6 +8,7 @@ let jsExecutionUnlistenFunction: (() => void) | null = null;
 let elementPositionUnlistenFunction: (() => void) | null = null;
 let sendTextToElementUnlistenFunction: (() => void) | null = null;
 let captureScreenshotUnlistenFunction: (() => void) | null = null;
+let iframeRpcUnlistenFunction: (() => void) | null = null;
 
 export async function setupPluginListeners() {
     const currentWindow: WebviewWindow = getCurrentWebviewWindow();
@@ -17,8 +18,9 @@ export async function setupPluginListeners() {
     elementPositionUnlistenFunction = await currentWindow.listen('get-element-position', handleGetElementPositionRequest);
     sendTextToElementUnlistenFunction = await currentWindow.listen('send-text-to-element', handleSendTextToElementRequest);
     captureScreenshotUnlistenFunction = await currentWindow.listen('capture-screenshot', handleCaptureScreenshotRequest);
+    iframeRpcUnlistenFunction = await currentWindow.listen('iframe-rpc', handleIframeRpcRequest);
 
-    console.log('TAURI-PLUGIN-MCP: Event listeners for "got-dom-content", "get-local-storage", "execute-js", "get-element-position", "send-text-to-element", and "capture-screenshot" are set up on the current window.');
+    console.log('TAURI-PLUGIN-MCP: Event listeners for "got-dom-content", "get-local-storage", "execute-js", "get-element-position", "send-text-to-element", "capture-screenshot", and "iframe-rpc" are set up on the current window.');
 }
 
 export async function cleanupPluginListeners() {
@@ -56,6 +58,12 @@ export async function cleanupPluginListeners() {
         captureScreenshotUnlistenFunction();
         captureScreenshotUnlistenFunction = null;
         console.log('TAURI-PLUGIN-MCP: Event listener for "capture-screenshot" has been removed.');
+    }
+
+    if (iframeRpcUnlistenFunction) {
+        iframeRpcUnlistenFunction();
+        iframeRpcUnlistenFunction = null;
+        console.log('TAURI-PLUGIN-MCP: Event listener for "iframe-rpc" has been removed.');
     }
 }
 
@@ -1020,6 +1028,56 @@ async function handleCaptureScreenshotRequest(event: any) {
         }).catch(e =>
             console.error('TAURI-PLUGIN-MCP: Error emitting error response', e)
         );
+    }
+}
+
+async function handleIframeRpcRequest(event: any) {
+    console.log('TAURI-PLUGIN-MCP: Received iframe-rpc, payload:', event.payload);
+
+    try {
+        const { method, args } = event.payload;
+        const iframe = document.getElementById('moss-preview-iframe') as HTMLIFrameElement | null;
+
+        if (!iframe?.contentWindow) {
+            await emit('iframe-rpc-response', { success: false, error: 'No iframe found' });
+            return;
+        }
+
+        const id = `rpc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        // Set up response listener before sending message
+        const responsePromise = new Promise<unknown>((resolve) => {
+            const handler = (e: MessageEvent) => {
+                if (e.data?.type === 'moss-rpc-result' && e.data.id === id) {
+                    window.removeEventListener('message', handler);
+                    resolve(e.data);
+                }
+            };
+            window.addEventListener('message', handler);
+
+            // Timeout after 5 seconds
+            setTimeout(() => {
+                window.removeEventListener('message', handler);
+                resolve({ error: 'Timeout after 5s' });
+            }, 5000);
+        });
+
+        // Send RPC call to iframe
+        iframe.contentWindow.postMessage(
+            { type: 'moss-rpc-call', id, method, args },
+            '*'
+        );
+
+        // Wait for response and emit back to Rust
+        const response = await responsePromise;
+        await emit('iframe-rpc-response', response);
+        console.log('TAURI-PLUGIN-MCP: Emitted iframe-rpc-response');
+    } catch (error) {
+        console.error('TAURI-PLUGIN-MCP: Error handling iframe-rpc request', error);
+        await emit('iframe-rpc-response', {
+            success: false,
+            error: error instanceof Error ? error.toString() : String(error)
+        }).catch(e => console.error('TAURI-PLUGIN-MCP: Error emitting error response', e));
     }
 }
 
