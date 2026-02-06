@@ -2,6 +2,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { cwd } from 'process'
 import typescript from '@rollup/plugin-typescript'
+import resolve from '@rollup/plugin-node-resolve'
 
 const pkg = JSON.parse(readFileSync(join(cwd(), 'package.json'), 'utf8'))
 
@@ -32,25 +33,22 @@ export default [
     ]
   },
   // Auto-init IIFE for plugin injection via js_init_script.
-  // Maps @tauri-apps/api imports to window.__TAURI__ globals
-  // (requires withGlobalTauri: true in tauri.conf.json).
+  // Bundles @tauri-apps/api so the IIFE is self-contained and works
+  // in js_init_script context where window.__TAURI__ may not exist yet.
+  // The bundled @tauri-apps/api uses window.__TAURI_INTERNALS__ internally,
+  // which IS available when plugin init scripts run.
   {
     input: 'guest-js/auto-init.ts',
     output: {
       file: 'src/scripts/init.iife.js',
-      format: 'iife',
-      globals: {
-        '@tauri-apps/api/event': '__TAURI__.event',
-        '@tauri-apps/api/webviewWindow': '__TAURI__.webviewWindow'
-      }
+      format: 'iife'
     },
     plugins: [
+      resolve(),
       typescript({
         declaration: false
       })
-    ],
-    external: [
-      /^@tauri-apps\/api/
     ]
+    // No external — @tauri-apps/api is bundled into the IIFE
   }
 ]
