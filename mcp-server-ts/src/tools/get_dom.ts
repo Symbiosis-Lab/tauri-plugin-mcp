@@ -6,7 +6,7 @@ import { socketClient } from "./client.js";
 export function registerGetDomTool(server: McpServer) {
   server.tool(
     "get_dom",
-    "Retrieves the full HTML Document Object Model (DOM) content from the specified application window as a string. This tool is read-only and provides a snapshot of the window's current HTML structure. Useful for parsing, analysis, or data extraction.",
+    "Retrieves the full HTML DOM of the Tauri APP SHELL webview as a string. This returns the outer application chrome (toolbar, sidebar, settings, navigation), NOT the preview/document content.\n\nWhen to use this vs Playwright browser_snapshot:\n- Use get_dom for the APP SHELL: to inspect toolbar state, navigation structure, settings panels, modal dialogs in the Tauri webview.\n- Use Playwright browser_snapshot on localhost:8080 for PREVIEW CONTENT: to inspect the rendered document/article being previewed.\n\nReturns: The complete HTML string of the app shell webview's document. This can be large; consider using execute_js with a targeted querySelector if you only need a specific element.",
     {
       window_label: z.string().default("main").describe("The identifier (e.g., visible title or internal label) of the application window from which to retrieve the DOM content. Defaults to 'main' if not specified."),
     },

@@ -14,7 +14,7 @@ ${clickInfo}`;
 export function registerGetElementPositionTool(server: McpServer) {
   server.tool(
     "get_element_position",
-    "Finds an HTML element on the page by ID, class, tag name, or text content, and returns its raw position coordinates for use with mouse_movement. Can optionally click the element.",
+    "Finds an HTML element in the Tauri APP SHELL webview by ID, class, tag name, or text content, and returns its absolute screen coordinates. Optionally clicks the element. Use this to locate app shell UI elements (toolbar buttons, sidebar links, settings controls) for subsequent mouse_movement or to click them directly.\n\nWhen to use this vs Playwright browser_click/browser_snapshot:\n- Use get_element_position for APP SHELL elements in the Tauri webview that Playwright cannot reach.\n- Use Playwright browser_snapshot + browser_click on localhost:8080 for PREVIEW CONTENT elements. Playwright provides ref-based element targeting which is more reliable than coordinate-based approaches.\n\nReturns: The element's tag, id, classes, and raw screen coordinates (x, y) for use with simulate_mouse_movement. If should_click=true, also reports whether the click succeeded.",
     {
       selector_type: z.enum(["id", "class", "tag", "text"]).describe("The type of selector to use: 'id', 'class', 'tag', or 'text'."),
       selector_value: z.string().describe("The value to search for based on the selector type."),

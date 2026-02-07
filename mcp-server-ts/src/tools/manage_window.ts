@@ -6,7 +6,7 @@ import { socketClient } from "./client.js";
 export function registerManageWindowTool(server: McpServer) {
   server.tool(
     "manage_window",
-    "Manages the state and geometry of Tauri application windows. Allows operations such as focusing, minimizing, maximizing, closing, showing/hiding, positioning, resizing, centering, and toggling fullscreen. Some operations like 'close' are destructive.",
+    "Manages the state and geometry of native Tauri application windows. This is one of the few tauri-mcp tools with NO Playwright equivalent -- Playwright cannot control native window state.\n\nOperations: focus, minimize, maximize, unmaximize, close, show, hide, setPosition, setSize, center, toggleFullscreen.\n\nUse cases:\n- Resize the app window to test responsive layouts: setSize with width/height.\n- Move the window to a specific position: setPosition with x/y.\n- Minimize/maximize to test window state transitions.\n- Show/hide to test visibility behavior.\n- Close to shut down the app (destructive, cannot be undone).\n\nReturns: A text confirmation that the operation completed successfully.",
     {
       operation: z.enum(["focus", "minimize", "maximize", "unmaximize", "close", "show", "hide", "setPosition", "setSize", "center", "toggleFullscreen"]).describe("Required. The window management operation to perform. Valid values are: focus, minimize, maximize, unmaximize, close, show, hide, setPosition, setSize, center, toggleFullscreen."),
       window_label: z.string().default("main").describe("The identifier (e.g., visible title or internal label) of the application window to control. Defaults to 'main' if not specified."),

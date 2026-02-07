@@ -6,7 +6,7 @@ import { socketClient } from "./client.js";
 export function registerManageLocalStorageTool(server: McpServer) {
   server.tool(
     "manage_local_storage",
-    "Allows reading from or modifying the browser's localStorage data associated with a specified application window's webview (e.g., a Tauri webview). Supports getting, setting, removing items, clearing all items, or listing keys. Some actions are destructive.",
+    "Reads and modifies localStorage in the Tauri app shell webview. This is unique to tauri-mcp -- Playwright cannot access the Tauri webview's localStorage directly (it can only access localStorage on localhost:8080 for preview content).\n\nUse this to inspect or modify app-level persisted state such as user preferences, theme settings, cached data, or session tokens stored in the Tauri webview's localStorage.\n\nActions: get (read a key), set (write a key-value pair), remove (delete a key), clear (delete all), keys (list all keys).\n\nReturns: For 'get', returns the value string (or null). For 'keys', returns a JSON array of key names. For 'set'/'remove'/'clear', returns a confirmation.",
     {
       action: z.enum(["get", "set", "remove", "clear", "keys"]).describe("Required. The operation to perform on localStorage. Valid values are: \n - get: Retrieve the value of a specified key. \n - set: Store a key-value pair. \n - remove: Delete a specified key and its value. \n - clear: Remove all key-value pairs. \n - keys: Retrieve a list of all keys currently stored."),
       key: z.string().optional().describe("The key (name) of the localStorage item to operate on. Required for 'get', 'set', and 'remove' actions. Ignored for 'clear' and 'keys' actions."),

@@ -7,7 +7,7 @@ import { createErrorResponse, createImageResponse, extractBase64Data, logCommand
 export function registerTakeScreenshotTool(server: McpServer) {
   server.tool(
     "take_screenshot",
-    "Captures a still image (screenshot) of a designated application window and returns it, typically as a JPEG image. This tool is read-only and does not modify any application or system state. Useful for visual inspection or documentation.",
+    "Captures a native OS-level screenshot of the Tauri application window, including window decorations. This uses the operating system's screen capture API, producing a pixel-perfect image of exactly what the user sees.\n\nREQUIREMENTS: Requires macOS Screen Recording permission (System Settings > Privacy & Security > Screen Recording). The window must be visible and not fully obscured. If permissions are missing, the screenshot will fail or return a blank image.\n\nWhen to use this vs alternatives:\n- Use take_screenshot when you need a native-fidelity capture of the FULL Tauri window (including title bar). Rarely needed.\n- Use capture_screenshot (html2canvas) for app shell content without needing OS permissions.\n- Use Playwright browser_take_screenshot on localhost:8080 for PREVIEW CONTENT screenshots -- more reliable and no OS permissions needed.\n\nReturns: A JPEG image of the native window capture.",
     {
       window_label: z.string().default("main").describe("The identifier for the window to capture. This could be the window's visible title text or a unique internal label if available. Ensure this label accurately targets the desired window. Defaults to 'main' if not specified."),
     },

@@ -24,7 +24,7 @@ import { createErrorResponse, createImageResponse, extractBase64Data, logCommand
 export function registerCaptureScreenshotTool(server: McpServer) {
   server.tool(
     "capture_screenshot",
-    "Captures the webview's content using JavaScript-based rendering. Unlike take_screenshot, this does NOT require Screen Recording permissions or window focus. Best for capturing web content when the app may be minimized or obscured. Returns a JPEG image.",
+    "Captures a screenshot of the Tauri APP SHELL webview using html2canvas (JavaScript-based rendering). No OS permissions required, works even when the app is minimized or behind other windows.\n\nLimitations: Uses html2canvas, which produces a simplified render. Complex CSS (backdrop-filter, some gradients, canvas/WebGL with CORS) may not render accurately. Only captures the webview content, not native window decorations.\n\nWhen to use this vs Playwright browser_take_screenshot:\n- Use capture_screenshot for the APP SHELL: to see toolbar layout, settings panels, navigation state in the Tauri webview. Good for quick visual checks when the app is not focused.\n- Use Playwright browser_take_screenshot on localhost:8080 for PREVIEW CONTENT: produces a pixel-perfect browser screenshot of the rendered document. Playwright screenshots are more accurate overall.\n\nReturns: A JPEG image of the app shell webview content.",
     {
       window_label: z.string().default("main").describe("The webview label to capture. Defaults to 'main'. For moss, this resolves to 'preview' automatically."),
       quality: z.number().min(1).max(100).default(85).describe("JPEG quality (1-100). Higher = better quality but larger size."),

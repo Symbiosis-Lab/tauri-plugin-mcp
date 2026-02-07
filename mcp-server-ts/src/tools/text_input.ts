@@ -6,7 +6,7 @@ import { socketClient } from "./client.js";
 export function registerTextInputTool(server: McpServer) {
   server.tool(
     "simulate_text_input",
-    "Simulates keyboard input, typing the specified text content character by character into the currently focused input field or application element. Allows configuration of typing speed via inter-keystroke delay and initial delay. This action modifies the content of the target input field.",
+    "Simulates keyboard input by typing text character-by-character into the currently focused element in the Tauri app shell. Uses OS-level key simulation, so the target element must already have focus.\n\nWhen to use this vs Playwright browser_type:\n- Use simulate_text_input for typing into APP SHELL elements (toolbar search, settings fields, navigation inputs) that are inside the Tauri webview.\n- Use Playwright browser_type on localhost:8080 for typing into PREVIEW CONTENT elements. Playwright is more reliable for preview content because it handles focus, element targeting, and React state updates automatically.\n\nLimitation: Requires an element to already be focused. Does not target elements by selector -- use get_element_position with should_click=true first, or use send_text_to_element instead.\n\nReturns: A confirmation message with the number of characters typed.",
     {
       text: z.string().describe("Required. The string of text content to be typed out by the simulated keyboard input."),
       delay_ms: z.number().int().nonnegative().optional().describe("The delay in milliseconds between each simulated keystroke. Adjusts the typing speed."),
