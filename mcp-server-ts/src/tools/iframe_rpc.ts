@@ -7,7 +7,7 @@ import { createErrorResponse, createSuccessResponse, formatResultAsText, logComm
 export function registerIframeRpcTool(server: McpServer) {
   server.tool(
     "iframe_rpc",
-    "Calls an RPC method on the preview iframe within the application window. This allows communication with embedded iframe content through a predefined RPC interface. The frontend must have an event listener for 'iframe-rpc' that forwards the call to the iframe and emits 'iframe-rpc-response' with the result.",
+    "Calls an RPC method on the preview iframe from within the Tauri app shell context. This bridges the app shell and the embedded preview iframe using a predefined RPC interface (the app shell listens for 'iframe-rpc' events, forwards the call to the iframe, and returns the result via 'iframe-rpc-response').\n\nWhen to use this vs Playwright:\n- Use iframe_rpc when you need to call application-defined RPC methods that the preview iframe exposes (e.g., custom query APIs, state inspection methods specific to the app).\n- Use Playwright directly on localhost:8080 for most preview testing: DOM inspection, clicking elements, reading text content, taking screenshots. Playwright is simpler and more reliable for standard DOM interactions.\n\nReturns: The serialized result from the iframe's RPC method handler. The exact shape depends on the RPC method called.",
     {
       method: z.string().describe("Required. The name of the RPC method to call on the iframe. This must match a method exposed by the iframe's RPC interface."),
       args: z.array(z.any()).default([]).describe("Optional. An array of arguments to pass to the RPC method. Defaults to an empty array if not specified."),

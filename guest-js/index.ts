@@ -489,8 +489,20 @@ async function handleJsExecutionRequest(event: any) {
         const result = executeJavaScript(code);
         
         // Prepare response with result and type information
+        // Ensure all values are properly stringified for the Rust side (expects r.as_str())
+        let resultStr: string;
+        if (result === undefined) {
+            resultStr = 'undefined';
+        } else if (result === null) {
+            resultStr = 'null';
+        } else if (typeof result === 'object') {
+            resultStr = JSON.stringify(result);
+        } else {
+            resultStr = String(result);
+        }
+
         const response = {
-            result: typeof result === 'object' ? JSON.stringify(result) : String(result),
+            result: resultStr,
             type: typeof result
         };
         

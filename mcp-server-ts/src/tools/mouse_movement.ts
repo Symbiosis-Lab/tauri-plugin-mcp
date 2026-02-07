@@ -6,7 +6,7 @@ import { socketClient } from "./client.js";
 export function registerMouseMovementTool(server: McpServer) {
   server.tool(
     "simulate_mouse_movement",
-    "Simulates the movement of the mouse cursor to specified screen coordinates, either absolute or relative to its current position. This action can trigger hover events or other UI interactions in the targeted application or operating system. Considered destructive as it can alter UI state or initiate actions.",
+    "Simulates OS-level mouse cursor movement to specified screen coordinates, with optional click. Moves the actual system cursor, which can trigger hover effects and focus changes in the Tauri app shell.\n\nWhen to use this vs Playwright browser_click:\n- Use simulate_mouse_movement for interacting with APP SHELL elements in the Tauri webview (toolbar buttons, sidebar items, settings controls). Coordinates are absolute screen pixels -- use get_element_position first to find the target.\n- Use Playwright browser_click on localhost:8080 for PREVIEW CONTENT interactions. Playwright targets elements by selector/ref, which is more reliable than coordinate-based clicking.\n\nReturns: A confirmation message describing the movement (and click if performed).",
     {
       x: z.number().int().describe("Required. The target X-coordinate for the mouse cursor, in screen pixels."),
       y: z.number().int().describe("Required. The target Y-coordinate for the mouse cursor, in screen pixels."),
