@@ -1143,16 +1143,16 @@ async function capturePageAsImage(quality: number, maxWidth: number): Promise<st
     // Try to use the native browser rendering approach
     // This uses an SVG foreignObject to render the DOM to canvas
     try {
-        const dataUrl = await renderDomToCanvas(ctx, viewportWidth, viewportHeight);
-        if (dataUrl) {
-            return dataUrl;
-        }
+        await renderDomToCanvas(ctx, viewportWidth, viewportHeight);
     } catch (svgError) {
         console.warn('TAURI-PLUGIN-MCP: SVG foreignObject approach failed, trying fallback:', svgError);
+        // Fallback: Render a simplified snapshot manually
+        await renderSimplifiedSnapshot(ctx, viewportWidth, viewportHeight);
     }
 
-    // Fallback: Render a simplified snapshot manually
-    await renderSimplifiedSnapshot(ctx, viewportWidth, viewportHeight);
+    // Composite iframe content if present (iframes are stripped from SVG clone
+    // to avoid cross-origin SecurityError, so we capture them separately)
+    await compositeIframeContent(ctx, quality, maxWidth);
 
     // Convert to JPEG
     const qualityFraction = quality / 100;
@@ -1160,10 +1160,82 @@ async function capturePageAsImage(quality: number, maxWidth: number): Promise<st
 }
 
 /**
+ * Captures iframe content by sending a postMessage to the iframe-bridge handler.
+ * The iframe-bridge (injected by moss's preview server) has a `moss-capture-preview`
+ * handler that renders the iframe's own content using canvas and returns a JPEG data URL.
+ * Returns null if the iframe doesn't support capture or times out.
+ */
+async function captureIframeContent(
+    iframe: HTMLIFrameElement,
+    quality: number,
+    maxWidth: number
+): Promise<string | null> {
+    if (!iframe.contentWindow) return null;
+
+    const captureId = `capture-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+            window.removeEventListener('message', handler);
+            console.warn('TAURI-PLUGIN-MCP: Iframe capture timed out');
+            resolve(null);
+        }, 5000);
+
+        function handler(event: MessageEvent) {
+            if (event.data?.type !== 'moss-capture-preview-result') return;
+            if (event.data.id !== captureId) return;
+
+            window.removeEventListener('message', handler);
+            clearTimeout(timeout);
+
+            if (event.data.success && event.data.data) {
+                resolve(event.data.data);
+            } else {
+                console.warn('TAURI-PLUGIN-MCP: Iframe capture failed:', event.data.error);
+                resolve(null);
+            }
+        }
+
+        window.addEventListener('message', handler);
+        iframe.contentWindow!.postMessage({
+            type: 'moss-capture-preview',
+            id: captureId,
+            quality,
+            maxWidth
+        }, '*');
+    });
+}
+
+/**
+ * Composites iframe content onto the canvas. Finds iframes with capture support
+ * and draws their content at their bounding rect positions.
+ */
+async function compositeIframeContent(ctx: CanvasRenderingContext2D, quality: number, maxWidth: number): Promise<void> {
+    const iframes = document.querySelectorAll('iframe');
+    for (const iframe of iframes) {
+        const rect = iframe.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+
+        const dataUrl = await captureIframeContent(iframe, quality, maxWidth);
+        if (!dataUrl) continue;
+
+        await new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                ctx.drawImage(img, rect.left, rect.top, rect.width, rect.height);
+                resolve();
+            };
+            img.onerror = () => resolve();
+            img.src = dataUrl;
+        });
+    }
+}
+
+/**
  * Renders the DOM to canvas using SVG foreignObject.
  * This is the most accurate approach but may fail on some pages due to CORS.
  */
-async function renderDomToCanvas(ctx: CanvasRenderingContext2D, width: number, height: number): Promise<string | null> {
+async function renderDomToCanvas(ctx: CanvasRenderingContext2D, width: number, height: number): Promise<void> {
     // Clone the body to avoid modifying the original
     const clone = document.body.cloneNode(true) as HTMLElement;
 
@@ -1172,6 +1244,10 @@ async function renderDomToCanvas(ctx: CanvasRenderingContext2D, width: number, h
 
     // Remove script tags (they won't render anyway and can cause issues)
     clone.querySelectorAll('script').forEach(el => el.remove());
+
+    // Remove iframes — cross-origin iframes taint the canvas via SVG foreignObject,
+    // causing SecurityError. Iframe content is composited separately.
+    clone.querySelectorAll('iframe').forEach(el => el.remove());
 
     // Serialize to XML
     const serializer = new XMLSerializer();
@@ -1192,21 +1268,19 @@ async function renderDomToCanvas(ctx: CanvasRenderingContext2D, width: number, h
     const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(svgBlob);
 
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
             try {
                 ctx.drawImage(img, 0, 0);
                 URL.revokeObjectURL(url);
-                // Get the data URL from the canvas
-                const canvas = ctx.canvas;
-                resolve(canvas.toDataURL('image/jpeg', 0.85));
+                resolve();
             } catch (e) {
                 URL.revokeObjectURL(url);
                 reject(e);
             }
         };
-        img.onerror = (e) => {
+        img.onerror = () => {
             URL.revokeObjectURL(url);
             reject(new Error('Failed to render SVG to image'));
         };
