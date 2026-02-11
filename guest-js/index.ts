@@ -1335,7 +1335,35 @@ async function inlineStyles(clone: HTMLElement, source: HTMLElement): Promise<vo
  * Fallback: Renders a simplified snapshot by drawing visible elements.
  */
 async function renderSimplifiedSnapshot(ctx: CanvasRenderingContext2D, width: number, height: number): Promise<void> {
-    // Draw visible images
+    // DOM-walking approach: render backgrounds, borders, images, and text
+    // in z-order (depth-first traversal). This avoids SVG foreignObject
+    // which taints canvas on WebKit.
+
+    // Pass 1: Backgrounds and borders for all visible elements
+    const allElements = document.body.querySelectorAll('*');
+    for (const el of allElements) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        if (rect.top >= height || rect.left >= width) continue;
+
+        const style = getComputedStyle(el);
+
+        // Draw background color (skip transparent)
+        if (style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+            ctx.fillStyle = style.backgroundColor;
+            ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+        }
+
+        // Draw borders
+        const borderWidth = parseFloat(style.borderWidth) || 0;
+        if (borderWidth > 0 && style.borderStyle !== 'none') {
+            ctx.strokeStyle = style.borderColor || '#000000';
+            ctx.lineWidth = borderWidth;
+            ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+        }
+    }
+
+    // Pass 2: Images
     const images = document.querySelectorAll('img');
     for (const img of images) {
         if (img.complete && img.naturalWidth > 0) {
@@ -1350,26 +1378,7 @@ async function renderSimplifiedSnapshot(ctx: CanvasRenderingContext2D, width: nu
         }
     }
 
-    // Draw visible text elements
-    const textElements = document.querySelectorAll('h1, h2, h3, h4, h5, h6, p, span, a, li, td, th, label, button');
-    ctx.fillStyle = '#000000';
-
-    for (const el of textElements) {
-        const rect = el.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0 && rect.top < height && rect.left < width) {
-            const style = getComputedStyle(el);
-            const fontSize = parseFloat(style.fontSize) || 14;
-            ctx.font = `${style.fontWeight} ${fontSize}px ${style.fontFamily}`;
-            ctx.fillStyle = style.color || '#000000';
-
-            const text = el.textContent?.trim();
-            if (text && text.length < 500) {
-                ctx.fillText(text.substring(0, 100), rect.left, rect.top + fontSize);
-            }
-        }
-    }
-
-    // Draw visible canvas elements
+    // Pass 3: Canvas elements
     const canvases = document.querySelectorAll('canvas');
     for (const cvs of canvases) {
         const rect = cvs.getBoundingClientRect();
@@ -1382,5 +1391,21 @@ async function renderSimplifiedSnapshot(ctx: CanvasRenderingContext2D, width: nu
         }
     }
 
-    console.log('TAURI-PLUGIN-MCP: Rendered simplified snapshot');
+    // Pass 4: Text (leaf nodes only to avoid duplicate rendering)
+    for (const el of allElements) {
+        if (el.children.length > 0) continue; // Only leaf nodes
+        const text = el.textContent?.trim();
+        if (!text || text.length > 500) continue;
+
+        const rect = el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0 || rect.top >= height || rect.left >= width) continue;
+
+        const style = getComputedStyle(el);
+        const fontSize = parseFloat(style.fontSize) || 14;
+        ctx.font = `${style.fontWeight} ${fontSize}px ${style.fontFamily}`;
+        ctx.fillStyle = style.color || '#000000';
+        ctx.fillText(text.substring(0, 200), rect.left, rect.top + fontSize);
+    }
+
+    console.log('TAURI-PLUGIN-MCP: Rendered DOM-walking snapshot (backgrounds, borders, images, text)');
 }
