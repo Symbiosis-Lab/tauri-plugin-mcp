@@ -1332,7 +1332,15 @@ async function inlineStyles(clone: HTMLElement, source: HTMLElement): Promise<vo
 }
 
 /**
- * Fallback: Renders a simplified snapshot by drawing visible elements.
+ * Fallback: Renders a simplified snapshot by walking the DOM tree and drawing elements.
+ *
+ * This approach is used when SVG foreignObject taints the canvas (WebKit security policy).
+ * It walks all visible elements and renders backgrounds, borders, images, and text using
+ * Canvas 2D API. Not pixel-perfect (no gradients/shadows/transforms) but good enough
+ * for AI/LLM consumption.
+ *
+ * NOTE: This runs in the PARENT WINDOW (main webview/app shell). For iframes, see
+ * compositeIframeContent() which uses postMessage to have each iframe render itself.
  */
 async function renderSimplifiedSnapshot(ctx: CanvasRenderingContext2D, width: number, height: number): Promise<void> {
     // DOM-walking approach: render backgrounds, borders, images, and text

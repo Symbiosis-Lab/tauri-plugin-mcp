@@ -20,6 +20,80 @@ The Tauri MCP Plugin provides a comprehensive set of tools that allow AI models 
 - **Local Storage Management**: Get, set, remove, and clear localStorage entries
 - **Ping**: Simple connectivity testing to verify the plugin is responsive
 
+## Architecture: Screenshot Capture Strategy
+
+The plugin provides two screenshot tools with complementary approaches:
+
+### take_screenshot (Native)
+Uses native OS screenshot APIs (via `xcap`) to capture window pixels directly. Requires screen recording permissions and window focus, but produces pixel-perfect captures.
+
+### capture_screenshot (JavaScript-based)
+Uses a layered fallback approach for permission-free, focus-free captures:
+
+1. **Primary: SVG foreignObject → Canvas**
+   - Clones DOM tree and embeds in SVG foreignObject
+   - Renders via canvas drawImage
+   - Most accurate HTML rendering
+   - Works on non-WebKit browsers
+
+2. **Secondary: DOM-walking renderer** (`renderSimplifiedSnapshot`)
+   - Activated when SVG foreignObject taints canvas (WebKit security policy)
+   - Walks DOM tree and renders backgrounds, borders, images, text via Canvas 2D API
+   - Not pixel-perfect (no gradients/shadows/transforms) but sufficient for AI/LLM consumption
+   - Runs in PARENT WINDOW (app shell/main webview)
+
+3. **Tertiary: Iframe composition via postMessage**
+   - For cross-origin iframes, sends `moss-capture-preview` message
+   - Each iframe renders itself and returns JPEG data URL
+   - Composited into final screenshot
+   - **Requires iframe to implement handler** (see implementation notes below)
+
+### Why Not Use html2canvas?
+
+Popular libraries like `html2canvas` (45KB gzipped) and `html-to-image` (13-15KB gzipped) still use SVG foreignObject internally, so they don't solve WebKit canvas tainting. The custom DOM walker is:
+- **Lighter**: Zero external dependencies, ~70 lines of code
+- **CORS-safe**: No cross-origin restrictions
+- **Sufficient**: Good enough quality for AI/LLM screenshot consumption
+- **Fallback-only**: Only runs when SVG method fails
+
+### For App Developers: Iframe Screenshot Support
+
+If your Tauri app has iframes that need screenshot capture, implement the `moss-capture-preview` message handler in your iframe scripts. Example implementation:
+
+```typescript
+window.addEventListener("message", async (e: MessageEvent) => {
+  if (e.data?.type !== "moss-capture-preview") return;
+
+  const { id, quality = 85, maxWidth = 1920 } = e.data;
+
+  try {
+    // Wait for renders
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    // Create canvas and walk DOM to render backgrounds, borders, images, text
+    // (Similar to renderSimplifiedSnapshot but runs inside iframe)
+
+    const dataUrl = canvas.toDataURL("image/jpeg", quality / 100);
+
+    window.parent.postMessage({
+      type: "moss-capture-preview-result",
+      id,
+      success: true,
+      data: dataUrl
+    }, "*");
+  } catch (err) {
+    window.parent.postMessage({
+      type: "moss-capture-preview-result",
+      id,
+      success: false,
+      error: String(err)
+    }, "*");
+  }
+});
+```
+
+See [moss's iframe-bridge.ts](https://github.com/Symbiosis-Lab/moss/blob/main/src-tauri/src/preview/ts/iframe-bridge.ts#L260-L373) for a complete reference implementation.
+
 ## How to build
 ```bash
 pnpm i 
