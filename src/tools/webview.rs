@@ -109,15 +109,17 @@ pub async fn get_dom_text_for_label<R: Runtime>(
     webview_label: &str,
 ) -> Result<String, GetDomError> {
     eprintln!("[TAURI_MCP] Getting DOM from webview: {}", webview_label);
-    app.emit_to(webview_label, "got-dom-content", "test")
-        .map_err(|e| GetDomError::WebviewOperation(format!("Failed to emit to {}: {}", webview_label, e)))?;
 
+    // Set up channel and listener BEFORE emitting to avoid race condition
     let (tx, rx) = mpsc::channel();
 
     app.once("got-dom-content-response", move |event| {
         let payload = event.payload().to_string();
         let _ = tx.send(payload);
     });
+
+    app.emit_to(webview_label, "got-dom-content", "test")
+        .map_err(|e| GetDomError::WebviewOperation(format!("Failed to emit to {}: {}", webview_label, e)))?;
 
     // Wait for the content
     match rx.recv_timeout(std::time::Duration::from_secs(5)) {
@@ -399,17 +401,10 @@ pub async fn handle_capture_screenshot<R: Runtime>(
         "maxWidth": max_width
     });
 
-    // Emit the event to the webview
-    // Note: Using emit() broadcast since emit_to may not work reliably for webview events
+    // Emit the event to the resolved webview only (no broadcast to avoid duplicate handlers)
     eprintln!("[TAURI_MCP] Emitting capture-screenshot event to webview: {}", resolved_label);
 
-    // First try emit_to to the resolved webview label
-    if let Err(e) = app.emit_to(&resolved_label, "capture-screenshot", js_payload.clone()) {
-        eprintln!("[TAURI_MCP] emit_to failed, trying broadcast: {}", e);
-    }
-
-    // Also broadcast as fallback in case emit_to doesn't reach the webview
-    app.emit("capture-screenshot", js_payload)
+    app.emit_to(&resolved_label, "capture-screenshot", js_payload)
         .map_err(|e| {
             crate::error::Error::Anyhow(format!("Failed to emit capture-screenshot event: {}", e))
         })?;
