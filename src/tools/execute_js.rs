@@ -121,20 +121,19 @@ async fn execute_js_in_window<R: Runtime>(
     // Get timeout or use default (5 seconds)
     let timeout = Duration::from_millis(params.timeout_ms.unwrap_or(5000));
 
+    // Set up channel and listener BEFORE emitting to avoid race condition
+    let (tx, rx) = mpsc::channel();
+
+    app.once("execute-js-response", move |event| {
+        let payload = event.payload().to_string();
+        let _ = tx.send(payload);
+    });
+
     // Emit event to execute the JavaScript in the specified window
     app.emit_to(&window_label, "execute-js", &params.code)
         .map_err(|e| {
             ExecuteJsError::WebviewOperation(format!("Failed to emit execute-js event: {}", e))
         })?;
-
-    // Set up a channel to receive the response
-    let (tx, rx) = mpsc::channel();
-
-    // Listen for response
-    app.once("execute-js-response", move |event| {
-        let payload = event.payload().to_string();
-        let _ = tx.send(payload);
-    });
 
     // Wait for the response with timeout
     match rx.recv_timeout(timeout) {

@@ -140,18 +140,17 @@ async fn perform_local_storage_operation<R: Runtime>(
         .clone()
         .unwrap_or_else(|| "main".to_string());
 
-    // Emit event to the window
-    app.emit_to(&window_label, "get-local-storage", &params)
-        .map_err(|e| LocalStorageError::WebviewOperation(format!("Failed to emit event: {}", e)))?;
-
-    // Set up channel for response
+    // Set up channel and listener BEFORE emitting to avoid race condition
     let (tx, rx) = mpsc::channel();
 
-    // Listen for response
     app.once("get-local-storage-response", move |event| {
         let payload = event.payload().to_string();
         let _ = tx.send(payload);
     });
+
+    // Emit event to the window
+    app.emit_to(&window_label, "get-local-storage", &params)
+        .map_err(|e| LocalStorageError::WebviewOperation(format!("Failed to emit event: {}", e)))?;
 
     // Wait for response with timeout
     match rx.recv_timeout(Duration::from_secs(5)) {

@@ -143,13 +143,7 @@ async fn execute_iframe_rpc<R: Runtime>(
 
     eprintln!("[TAURI_MCP] Emitting iframe-rpc event to webview: {}", window_label);
 
-    // First try emit_to to the resolved webview label
-    if let Err(e) = app.emit_to(&window_label, "iframe-rpc", &rpc_payload) {
-        eprintln!("[TAURI_MCP] emit_to failed, trying broadcast: {}", e);
-    }
-
-    // Also broadcast as fallback in case emit_to doesn't reach the webview
-    app.emit("iframe-rpc", &rpc_payload)
+    app.emit_to(&window_label, "iframe-rpc", &rpc_payload)
         .map_err(|e| {
             IframeRpcError::WebviewOperation(format!("Failed to emit iframe-rpc event: {}", e))
         })?;
@@ -162,18 +156,26 @@ async fn execute_iframe_rpc<R: Runtime>(
                 IframeRpcError::RpcError(format!("Failed to parse response: {}", e))
             })?;
 
-            // Check if result contains an error
+            // Check if result contains a real error (ignore null/empty values)
             if let Some(error) = response.get("error") {
-                let error_str = if let Some(s) = error.as_str() {
-                    s.to_string()
-                } else {
-                    serde_json::to_string(error).unwrap_or_else(|_| "Unknown error".to_string())
+                let is_real_error = match error {
+                    Value::Null => false,
+                    Value::Bool(false) => false,
+                    Value::String(s) => !s.is_empty(),
+                    _ => true,
                 };
-                return Ok(IframeRpcResponse {
-                    success: false,
-                    result: None,
-                    error: Some(error_str),
-                });
+                if is_real_error {
+                    let error_str = if let Some(s) = error.as_str() {
+                        s.to_string()
+                    } else {
+                        serde_json::to_string(error).unwrap_or_else(|_| "Unknown error".to_string())
+                    };
+                    return Ok(IframeRpcResponse {
+                        success: false,
+                        result: None,
+                        error: Some(error_str),
+                    });
+                }
             }
 
             // Return successful response with result
