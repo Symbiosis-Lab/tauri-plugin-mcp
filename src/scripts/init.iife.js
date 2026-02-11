@@ -4293,20 +4293,31 @@
         ctx.fillRect(0, 0, viewportWidth, viewportHeight);
         // Try to use the native browser rendering approach
         // This uses an SVG foreignObject to render the DOM to canvas
+        let activeCanvas = canvas;
+        let activeCtx = ctx;
         try {
             await renderDomToCanvas(ctx, viewportWidth, viewportHeight);
+            // Test if canvas is tainted (WebKit taints canvas with foreignObject SVGs)
+            canvas.toDataURL('image/jpeg', 0.1);
         }
         catch (svgError) {
-            console.warn('TAURI-PLUGIN-MCP: SVG foreignObject approach failed, trying fallback:', svgError);
-            // Fallback: Render a simplified snapshot manually
-            await renderSimplifiedSnapshot(ctx, viewportWidth, viewportHeight);
+            console.warn('TAURI-PLUGIN-MCP: SVG foreignObject approach failed, using simplified snapshot:', svgError);
+            // Canvas is tainted — create a fresh one for the fallback
+            activeCanvas = document.createElement('canvas');
+            activeCanvas.width = Math.round(viewportWidth * scale);
+            activeCanvas.height = Math.round(viewportHeight * scale);
+            activeCtx = activeCanvas.getContext('2d');
+            activeCtx.scale(scale, scale);
+            activeCtx.fillStyle = getComputedStyle(document.body).backgroundColor || '#ffffff';
+            activeCtx.fillRect(0, 0, viewportWidth, viewportHeight);
+            await renderSimplifiedSnapshot(activeCtx, viewportWidth, viewportHeight);
         }
         // Composite iframe content if present (iframes are stripped from SVG clone
         // to avoid cross-origin SecurityError, so we capture them separately)
-        await compositeIframeContent(ctx, quality, maxWidth);
+        await compositeIframeContent(activeCtx, quality, maxWidth);
         // Convert to JPEG
         const qualityFraction = quality / 100;
-        return canvas.toDataURL('image/jpeg', qualityFraction);
+        return activeCanvas.toDataURL('image/jpeg', qualityFraction);
     }
     /**
      * Captures iframe content by sending a postMessage to the iframe-bridge handler.
