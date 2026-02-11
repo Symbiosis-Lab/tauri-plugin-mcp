@@ -19,7 +19,7 @@
 
 
     function __classPrivateFieldGet(receiver, state, kind, f) {
-        if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+        if (typeof state === "function" ? receiver !== state || true : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
         return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
     }
 
@@ -92,16 +92,14 @@
     // 2. process-ipc-message-fn.js
     const SERIALIZE_TO_IPC_FN = '__TAURI_TO_IPC_KEY__';
     /**
-     * Stores the callback in a known location, and returns an identifier that can be passed to the backend.
+     * Transforms a callback function to a string identifier that can be passed to the backend.
      * The backend uses the identifier to `eval()` the callback.
      *
-     * @return An unique identifier associated with the callback function.
+     * @return A unique identifier associated with the callback function.
      *
      * @since 1.0.0
      */
-    function transformCallback(
-    // TODO: Make this not optional in v3
-    callback, once = false) {
+    function transformCallback(callback, once = false) {
         return window.__TAURI_INTERNALS__.transformCallback(callback, once);
     }
     /**
@@ -126,7 +124,7 @@
      * A rust-backed resource stored through `tauri::Manager::resources_table` API.
      *
      * The resource lives in the main process and does not exist
-     * in the Javascript world, and thus will not be cleaned up automatically
+     * in the Javascript world, and thus will not be cleaned up automatiacally
      * except on application exit. If you want to clean it up early, call {@linkcode Resource.close}
      *
      * @example
@@ -202,7 +200,6 @@
      * @returns
      */
     async function _unlisten(event, eventId) {
-        window.__TAURI_EVENT_PLUGIN_INTERNALS__.unregisterListener(event, eventId);
         await invoke('plugin:event|unlisten', {
             event,
             eventId
@@ -271,7 +268,8 @@
      */
     async function once(event, handler, options) {
         return listen(event, (eventData) => {
-            void _unlisten(event, eventData.id);
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
+            _unlisten(event, eventData.id);
             handler(eventData);
         }, options);
     }
@@ -324,10 +322,6 @@
     // SPDX-License-Identifier: MIT
     /**
      * A size represented in logical pixels.
-     * Logical pixels are scaled according to the window's DPI scale.
-     * Most browser APIs (i.e. `MouseEvent`'s `clientX`) will return logical pixels.
-     *
-     * For logical-pixel-based position, see {@linkcode LogicalPosition}.
      *
      * @since 2.0.0
      */
@@ -380,12 +374,6 @@
     }
     /**
      * A size represented in physical pixels.
-     *
-     * Physical pixels represent actual screen pixels, and are DPI-independent.
-     * For high-DPI windows, this means that any point in the window on the screen
-     * will have a different position in logical pixels {@linkcode LogicalSize}.
-     *
-     * For physical-pixel-based position, see {@linkcode PhysicalPosition}.
      *
      * @since 2.0.0
      */
@@ -491,8 +479,7 @@
         }
     }
     /**
-     * A position represented in logical pixels.
-     * For an explanation of what logical pixels are, see description of {@linkcode LogicalSize}.
+     *  A position represented in logical pixels.
      *
      * @since 2.0.0
      */
@@ -544,9 +531,7 @@
         }
     }
     /**
-     * A position represented in physical pixels.
-     *
-     * For an explanation of what physical pixels are, see description of {@linkcode PhysicalSize}.
+     *  A position represented in physical pixels.
      *
      * @since 2.0.0
      */
@@ -1906,21 +1891,6 @@
             });
         }
         /**
-         * On macOS, Toggles a fullscreen mode that doesn’t require a new macOS space. Returns a boolean indicating whether the transition was successful (this won’t work if the window was already in the native fullscreen).
-         * This is how fullscreen used to work on macOS in versions before Lion. And allows the user to have a fullscreen window without using another space or taking control over the entire monitor.
-         *
-         * On other platforms, this is the same as {@link Window.setFullscreen}.
-         *
-         * @param fullscreen Whether the window should go to simple fullscreen or not.
-         * @returns A promise indicating the success or failure of the operation.
-         */
-        async setSimpleFullscreen(fullscreen) {
-            return invoke('plugin:window|set_simple_fullscreen', {
-                label: this.label,
-                value: fullscreen
-            });
-        }
-        /**
          * Bring the window to front and focus.
          * @example
          * ```typescript
@@ -1933,29 +1903,6 @@
         async setFocus() {
             return invoke('plugin:window|set_focus', {
                 label: this.label
-            });
-        }
-        /**
-         * Sets whether the window can be focused.
-         *
-         * #### Platform-specific
-         *
-         * - **macOS**: If the window is already focused, it is not possible to unfocus it after calling `set_focusable(false)`.
-         *   In this case, you might consider calling {@link Window.setFocus} but it will move the window to the back i.e. at the bottom in terms of z-order.
-         *
-         * @example
-         * ```typescript
-         * import { getCurrentWindow } from '@tauri-apps/api/window';
-         * await getCurrentWindow().setFocusable(true);
-         * ```
-         *
-         * @param focusable Whether the window can be focused.
-         * @returns A promise indicating the success or failure of the operation.
-         */
-        async setFocusable(focusable) {
-            return invoke('plugin:window|set_focusable', {
-                label: this.label,
-                value: focusable
             });
         }
         /**
@@ -2514,29 +2461,6 @@
         BackgroundThrottlingPolicy["Suspend"] = "suspend";
     })(BackgroundThrottlingPolicy || (BackgroundThrottlingPolicy = {}));
     /**
-     * The scrollbar style to use in the webview.
-     *
-     * ## Platform-specific
-     *
-     * **Windows**: This option must be given the same value for all webviews.
-     *
-     * @since 2.8.0
-     */
-    var ScrollBarStyle;
-    (function (ScrollBarStyle) {
-        /**
-         * The default scrollbar style for the webview.
-         */
-        ScrollBarStyle["Default"] = "default";
-        /**
-         * Fluent UI style overlay scrollbars. **Windows Only**
-         *
-         * Requires WebView2 Runtime version 125.0.2535.41 or higher, does nothing on older versions,
-         * see https://learn.microsoft.com/en-us/microsoft-edge/webview2/release-notes/?tabs=dotnetcsharp#10253541
-         */
-        ScrollBarStyle["FluentOverlay"] = "fluentOverlay";
-    })(ScrollBarStyle || (ScrollBarStyle = {}));
-    /**
      * Platform-specific window effects
      *
      * @since 2.0.0
@@ -2650,7 +2574,7 @@
          */
         Effect["Acrylic"] = "acrylic";
         /**
-         * Tabbed effect that matches the system dark preference **Windows 11 Only**
+         * Tabbed effect that matches the system dark perefence **Windows 11 Only**
          */
         Effect["Tabbed"] = "tabbed";
         /**
@@ -2742,45 +2666,27 @@
      *
      * const appWindow = new Window('uniqueLabel');
      *
-     * appWindow.once('tauri://created', async function () {
-     *   // `new Webview` Should be called after the window is successfully created,
-     *   // or webview may not be attached to the window since window is not created yet.
-     *
-     *   // loading embedded asset:
-     *   const webview = new Webview(appWindow, 'theUniqueLabel', {
-     *     url: 'path/to/page.html',
-     *
-     *     // create a webview with specific logical position and size
-     *     x: 0,
-     *     y: 0,
-     *     width: 800,
-     *     height: 600,
-     *   });
-     *   // alternatively, load a remote URL:
-     *   const webview = new Webview(appWindow, 'theUniqueLabel', {
-     *     url: 'https://github.com/tauri-apps/tauri',
-     *
-     *     // create a webview with specific logical position and size
-     *     x: 0,
-     *     y: 0,
-     *     width: 800,
-     *     height: 600,
-     *   });
-     *
-     *   webview.once('tauri://created', function () {
-     *     // webview successfully created
-     *   });
-     *   webview.once('tauri://error', function (e) {
-     *     // an error happened creating the webview
-     *   });
-     *
-     *
-     *   // emit an event to the backend
-     *   await webview.emit("some-event", "data");
-     *   // listen to an event from the backend
-     *   const unlisten = await webview.listen("event-name", e => { });
-     *   unlisten();
+     * // loading embedded asset:
+     * const webview = new Webview(appWindow, 'theUniqueLabel', {
+     *   url: 'path/to/page.html'
      * });
+     * // alternatively, load a remote URL:
+     * const webview = new Webview(appWindow, 'theUniqueLabel', {
+     *   url: 'https://github.com/tauri-apps/tauri'
+     * });
+     *
+     * webview.once('tauri://created', function () {
+     *  // webview successfully created
+     * });
+     * webview.once('tauri://error', function (e) {
+     *  // an error happened creating the webview
+     * });
+     *
+     * // emit an event to the backend
+     * await webview.emit("some-event", "data");
+     * // listen to an event from the backend
+     * const unlisten = await webview.listen("event-name", e => {});
+     * unlisten();
      * ```
      *
      * @since 2.0.0
@@ -2793,24 +2699,14 @@
          * import { Window } from '@tauri-apps/api/window'
          * import { Webview } from '@tauri-apps/api/webview'
          * const appWindow = new Window('my-label')
-         *
-         * appWindow.once('tauri://created', async function() {
-         *   const webview = new Webview(appWindow, 'my-label', {
-         *     url: 'https://github.com/tauri-apps/tauri',
-         *
-         *     // create a webview with specific logical position and size
-         *     x: 0,
-         *     y: 0,
-         *     width: 800,
-         *     height: 600,
-         *   });
-         *
-         *   webview.once('tauri://created', function () {
-         *     // webview successfully created
-         *   });
-         *   webview.once('tauri://error', function (e) {
-         *     // an error happened creating the webview
-         *   });
+         * const webview = new Webview(appWindow, 'my-label', {
+         *   url: 'https://github.com/tauri-apps/tauri'
+         * });
+         * webview.once('tauri://created', function () {
+         *  // webview successfully created
+         * });
+         * webview.once('tauri://error', function (e) {
+         *  // an error happened creating the webview
          * });
          * ```
          *
@@ -2827,10 +2723,8 @@
             if (!(options === null || options === void 0 ? void 0 : options.skip)) {
                 invoke('plugin:webview|create_webview', {
                     windowLabel: window.label,
-                    options: {
-                        ...options,
-                        label
-                    }
+                    label,
+                    options
                 })
                     .then(async () => this.emit('tauri://created'))
                     .catch(async (e) => this.emit('tauri://error', e));
@@ -3091,22 +2985,6 @@
             });
         }
         /**
-         * Sets whether the webview should automatically grow and shrink its size and position when the parent window resizes.
-         * @example
-         * ```typescript
-         * import { getCurrentWebview } from '@tauri-apps/api/webview';
-         * await getCurrentWebview().setAutoResize(true);
-         * ```
-         *
-         * @returns A promise indicating the success or failure of the operation.
-         */
-        async setAutoResize(autoResize) {
-            return invoke('plugin:webview|set_webview_auto_resize', {
-                label: this.label,
-                value: autoResize
-            });
-        }
-        /**
          * Hide the webview.
          * @example
          * ```typescript
@@ -3338,8 +3216,8 @@
          * Gets the Webview for the webview associated with the given label.
          * @example
          * ```typescript
-         * import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
-         * const mainWebview = WebviewWindow.getByLabel('main');
+         * import { Webview } from '@tauri-apps/api/webviewWindow';
+         * const mainWebview = Webview.getByLabel('main');
          * ```
          *
          * @param label The webview label.
@@ -3367,7 +3245,7 @@
             return getAllWebviewWindows();
         }
         /**
-         * Listen to an emitted event on this webview window.
+         * Listen to an emitted event on this webivew window.
          *
          * @example
          * ```typescript
@@ -3856,8 +3734,22 @@
             // Execute the code
             const result = executeJavaScript(code);
             // Prepare response with result and type information
+            // Ensure all values are properly stringified for the Rust side (expects r.as_str())
+            let resultStr;
+            if (result === undefined) {
+                resultStr = 'undefined';
+            }
+            else if (result === null) {
+                resultStr = 'null';
+            }
+            else if (typeof result === 'object') {
+                resultStr = JSON.stringify(result);
+            }
+            else {
+                resultStr = String(result);
+            }
             const response = {
-                result: typeof result === 'object' ? JSON.stringify(result) : String(result),
+                result: resultStr,
                 type: typeof result
             };
             // Send back the result
@@ -4402,19 +4294,83 @@
         // Try to use the native browser rendering approach
         // This uses an SVG foreignObject to render the DOM to canvas
         try {
-            const dataUrl = await renderDomToCanvas(ctx, viewportWidth, viewportHeight);
-            if (dataUrl) {
-                return dataUrl;
-            }
+            await renderDomToCanvas(ctx, viewportWidth, viewportHeight);
         }
         catch (svgError) {
             console.warn('TAURI-PLUGIN-MCP: SVG foreignObject approach failed, trying fallback:', svgError);
+            // Fallback: Render a simplified snapshot manually
+            await renderSimplifiedSnapshot(ctx, viewportWidth, viewportHeight);
         }
-        // Fallback: Render a simplified snapshot manually
-        await renderSimplifiedSnapshot(ctx, viewportWidth, viewportHeight);
+        // Composite iframe content if present (iframes are stripped from SVG clone
+        // to avoid cross-origin SecurityError, so we capture them separately)
+        await compositeIframeContent(ctx, quality, maxWidth);
         // Convert to JPEG
         const qualityFraction = quality / 100;
         return canvas.toDataURL('image/jpeg', qualityFraction);
+    }
+    /**
+     * Captures iframe content by sending a postMessage to the iframe-bridge handler.
+     * The iframe-bridge (injected by moss's preview server) has a `moss-capture-preview`
+     * handler that renders the iframe's own content using canvas and returns a JPEG data URL.
+     * Returns null if the iframe doesn't support capture or times out.
+     */
+    async function captureIframeContent(iframe, quality, maxWidth) {
+        if (!iframe.contentWindow)
+            return null;
+        const captureId = `capture-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        return new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+                window.removeEventListener('message', handler);
+                console.warn('TAURI-PLUGIN-MCP: Iframe capture timed out');
+                resolve(null);
+            }, 5000);
+            function handler(event) {
+                if (event.data?.type !== 'moss-capture-preview-result')
+                    return;
+                if (event.data.id !== captureId)
+                    return;
+                window.removeEventListener('message', handler);
+                clearTimeout(timeout);
+                if (event.data.success && event.data.data) {
+                    resolve(event.data.data);
+                }
+                else {
+                    console.warn('TAURI-PLUGIN-MCP: Iframe capture failed:', event.data.error);
+                    resolve(null);
+                }
+            }
+            window.addEventListener('message', handler);
+            iframe.contentWindow.postMessage({
+                type: 'moss-capture-preview',
+                id: captureId,
+                quality,
+                maxWidth
+            }, '*');
+        });
+    }
+    /**
+     * Composites iframe content onto the canvas. Finds iframes with capture support
+     * and draws their content at their bounding rect positions.
+     */
+    async function compositeIframeContent(ctx, quality, maxWidth) {
+        const iframes = document.querySelectorAll('iframe');
+        for (const iframe of iframes) {
+            const rect = iframe.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0)
+                continue;
+            const dataUrl = await captureIframeContent(iframe, quality, maxWidth);
+            if (!dataUrl)
+                continue;
+            await new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    ctx.drawImage(img, rect.left, rect.top, rect.width, rect.height);
+                    resolve();
+                };
+                img.onerror = () => resolve();
+                img.src = dataUrl;
+            });
+        }
     }
     /**
      * Renders the DOM to canvas using SVG foreignObject.
@@ -4427,6 +4383,9 @@
         await inlineStyles(clone, document.body);
         // Remove script tags (they won't render anyway and can cause issues)
         clone.querySelectorAll('script').forEach(el => el.remove());
+        // Remove iframes — cross-origin iframes taint the canvas via SVG foreignObject,
+        // causing SecurityError. Iframe content is composited separately.
+        clone.querySelectorAll('iframe').forEach(el => el.remove());
         // Serialize to XML
         const serializer = new XMLSerializer();
         const bodyHtml = serializer.serializeToString(clone);
@@ -4449,16 +4408,14 @@
                 try {
                     ctx.drawImage(img, 0, 0);
                     URL.revokeObjectURL(url);
-                    // Get the data URL from the canvas
-                    const canvas = ctx.canvas;
-                    resolve(canvas.toDataURL('image/jpeg', 0.85));
+                    resolve();
                 }
                 catch (e) {
                     URL.revokeObjectURL(url);
                     reject(e);
                 }
             };
-            img.onerror = (e) => {
+            img.onerror = () => {
                 URL.revokeObjectURL(url);
                 reject(new Error('Failed to render SVG to image'));
             };
